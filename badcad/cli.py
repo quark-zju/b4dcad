@@ -70,13 +70,28 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       background: rgba(255,255,255,.82); padding: 8px 10px; border: 1px solid #ddd;
     }
   </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <div id="bar">badcad preview</div>
   <script type="module">
-    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js";
-    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js";
-    import { STLLoader } from "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/loaders/STLLoader.js";
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { STLLoader } from "three/addons/loaders/STLLoader.js";
+
+    const bar = document.querySelector("#bar");
+    const showError = (message) => {
+      bar.textContent = message;
+      bar.style.color = "#8a1f11";
+      bar.style.borderColor = "#d9a095";
+    };
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf4f4f0);
@@ -108,7 +123,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       camera.far = Math.max(size * 100, 100);
       camera.updateProjectionMatrix();
       controls.update();
-    });
+    }, undefined, (error) => showError(`Failed to load STL: ${error.message || error}`));
 
     addEventListener("resize", () => {
       camera.aspect = innerWidth / innerHeight;
