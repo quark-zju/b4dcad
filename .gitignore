@@ -5,3 +5,4 @@ __pycache__/
 wip/
 build/
 *.stl
+.python-version
