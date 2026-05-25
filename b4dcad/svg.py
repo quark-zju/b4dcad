@@ -1,5 +1,5 @@
 from io import BytesIO
-from badcad.path import PolyPath
+from b4dcad.path import PolyPath
 
 def svg2polygons(svg, fn=8, autoclose=True):
     import svgelements

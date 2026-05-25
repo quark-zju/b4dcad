@@ -4,7 +4,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .badcad import Shape, Solid
+from .core import Shape, Solid
 
 
 DEFAULT_NAMES = ("model", "solid", "part", "shape")
@@ -29,7 +29,7 @@ def load_model(script, name=None):
     if isinstance(model, Shape):
         raise TypeError("STL export requires a Solid; extrude the Shape before exporting")
     if not isinstance(model, Solid):
-        raise TypeError(f"expected badcad Solid, got {type(model).__name__}")
+        raise TypeError(f"expected b4dcad Solid, got {type(model).__name__}")
     return model
 
 
@@ -60,7 +60,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>badcad preview</title>
+  <title>b4dcad preview</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f0; }
     canvas { display: block; }
@@ -80,7 +80,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
   </script>
 </head>
 <body>
-  <div id="bar">badcad preview</div>
+  <div id="bar">b4dcad preview</div>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -160,7 +160,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
 
 def stl_command(argv=None):
-    parser = argparse.ArgumentParser(description="Export a badcad Python model to STL.")
+    parser = argparse.ArgumentParser(description="Export a b4dcad Python model to STL.")
     parser.add_argument(
         "script",
         help="Python script defining model, solid, part, shape, or build()",
@@ -173,7 +173,7 @@ def stl_command(argv=None):
 
 def preview_command(argv=None):
     parser = argparse.ArgumentParser(
-        description="Serve a browser STL preview for a badcad Python model."
+        description="Serve a browser STL preview for a b4dcad Python model."
     )
     parser.add_argument(
         "script",
@@ -192,7 +192,7 @@ def preview_command(argv=None):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="badcad")
+    parser = argparse.ArgumentParser(prog="b4dcad")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     stl_parser = subparsers.add_parser("stl", help="Export a model script to STL")
