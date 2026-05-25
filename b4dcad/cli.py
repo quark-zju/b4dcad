@@ -1,9 +1,11 @@
 import argparse
+import json
 import runpy
+from collections import OrderedDict
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from collections import OrderedDict
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from .core import Shape, Solid
 
@@ -66,11 +68,19 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = urlparse(self.path).path
+        if path in ("/", "/index.html"):
             self._send_html()
             return
-        if self.path.startswith("/model.stl"):
-            self._send_stl()
+        if path == "/models.json":
+            self._send_models()
+            return
+        if path == "/model.stl":
+            self._send_stl(None)
+            return
+        if path.startswith("/model/") and path.endswith(".stl"):
+            name = unquote(path[len("/model/") : -len(".stl")])
+            self._send_stl(name)
             return
         self.send_error(404)
 
@@ -85,9 +95,20 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f0; }
     canvas { display: block; }
     #bar {
-      position: fixed; left: 12px; top: 12px; z-index: 1;
+      position: fixed; left: 0; right: 0; top: 0; z-index: 1;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       font: 13px system-ui, sans-serif; color: #222;
-      background: rgba(255,255,255,.82); padding: 8px 10px; border: 1px solid #ddd;
+      background: rgba(255,255,255,.88); padding: 10px 12px; border-bottom: 1px solid #ddd;
+    }
+    #bar button {
+      appearance: none; border: 1px solid #ccc; background: #fff; color: #222;
+      padding: 6px 10px; cursor: pointer;
+    }
+    #bar button[aria-pressed="true"] {
+      background: #222; color: #fff; border-color: #222;
+    }
+    #bar .error {
+      color: #8a1f11;
     }
   </style>
   <script type="importmap">
@@ -100,7 +121,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
   </script>
 </head>
 <body>
-  <div id="bar">b4dcad preview</div>
+  <nav id="bar" aria-label="Components"></nav>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -108,9 +129,10 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     const bar = document.querySelector("#bar");
     const showError = (message) => {
-      bar.textContent = message;
-      bar.style.color = "#8a1f11";
-      bar.style.borderColor = "#d9a095";
+      const item = document.createElement("span");
+      item.className = "error";
+      item.textContent = message;
+      bar.append(item);
     };
 
     const scene = new THREE.Scene();
@@ -129,11 +151,29 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     scene.add(key);
 
     const loader = new STLLoader();
-    loader.load(`/model.stl?ts=${Date.now()}`, (geometry) => {
+    let mesh = null;
+    let activeName = null;
+
+    function setActiveButton(name) {
+      for (const button of bar.querySelectorAll("button")) {
+        button.setAttribute("aria-pressed", String(button.dataset.name === name));
+      }
+    }
+
+    function loadModel(name) {
+      activeName = name;
+      setActiveButton(name);
+      const url = `/model/${encodeURIComponent(name)}.stl?ts=${Date.now()}`;
+      loader.load(url, (geometry) => {
       geometry.computeVertexNormals();
       geometry.center();
       const material = new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
-      const mesh = new THREE.Mesh(geometry, material);
+      if (mesh) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+      }
+      mesh = new THREE.Mesh(geometry, material);
       scene.add(mesh);
 
       const box = new THREE.Box3().setFromObject(mesh);
@@ -143,7 +183,30 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       camera.far = Math.max(size * 100, 100);
       camera.updateProjectionMatrix();
       controls.update();
-    }, undefined, (error) => showError(`Failed to load STL: ${error.message || error}`));
+      }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
+    }
+
+    async function loadModelList() {
+      const response = await fetch(`/models.json?ts=${Date.now()}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const models = await response.json();
+      bar.textContent = "";
+      for (const name of models) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.name = name;
+        button.textContent = name;
+        button.addEventListener("click", () => loadModel(name));
+        bar.append(button);
+      }
+      if (models.length === 0) {
+        showError("No public b4dcad Solid variables found");
+        return;
+      }
+      loadModel(models.includes(activeName) ? activeName : models[0]);
+    }
+
+    loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
     addEventListener("resize", () => {
       camera.aspect = innerWidth / innerHeight;
@@ -168,8 +231,30 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_stl(self):
-        model = load_model(self.script, self.object_name)
+    def _send_json(self, value):
+        data = json.dumps(value).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _available_models(self):
+        return load_models(self.script, self.object_name)
+
+    def _send_models(self):
+        self._send_json(list(self._available_models().keys()))
+
+    def _send_stl(self, name):
+        models = self._available_models()
+        if name is None:
+            model = next(iter(models.values()))
+        else:
+            if name not in models:
+                self.send_error(404, f"Unknown model {name!r}")
+                return
+            model = models[name]
         data = model.stl()
         self.send_response(200)
         self.send_header("Content-Type", "model/stl")
