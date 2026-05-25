@@ -129,7 +129,7 @@
 
     function materialForMode() {
       if (viewMode === "transparent") {
-        return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, transparent: true, opacity: 0.42, depthWrite: false });
+        return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, transparent: true, opacity: 0.34, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
       }
       return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
     }
