@@ -6,7 +6,8 @@ setup(
     url='https://github.com/wrongbad/badcad.git',
     author='quark',
     description='personal 3D printing CAD workflow built on Manifold',
-    packages=find_packages(),    
+    packages=find_packages(),
+    package_data={'b4dcad': ['preview.html']},
     install_requires=[
         'manifold3d',
     ],
