@@ -10,9 +10,6 @@ setup(
     install_requires=[
         'manifold3d',
     ],
-    extras_require={
-        'notebook': ['pythreejs', 'nbformat'],
-    },
     entry_points={
         'console_scripts': [
             'badcad=badcad.cli:main',

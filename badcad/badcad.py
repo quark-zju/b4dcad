@@ -10,23 +10,12 @@ from .svg import svg2polygons
 stl_dtype = np.dtype([('norm',np.float32,3),('vert',np.float32,9),('pad',np.int8,2)])
 
 # wrapper for Manifold
-# adds jupyter preview & tweaks API
+# tweaks API for scriptable modeling
 class Solid:
     def __init__(self, manifold = Manifold()):
         self.manifold = manifold
 
     # TODO add visual properties (e.g. color, texture)
-
-    def _repr_mimebundle_(self, **kwargs):
-        if self.is_empty():
-            return None
-        from .display import display
-
-        raw_mesh = self.to_mesh()
-        verts = raw_mesh.vert_properties.astype(np.float32)
-        tris = raw_mesh.tri_verts.astype(np.uint32)
-        renderer = display((verts, tris))
-        return renderer._repr_mimebundle_(**kwargs)
 
     def __add__(self, other):
         return Solid(self.manifold + other.manifold)
@@ -209,13 +198,6 @@ class Solid:
 class Shape:
     def __init__(self, cross_section = CrossSection()):
         self.cross_section = cross_section
-
-    def _repr_mimebundle_(self, **kwargs):
-        # called by jupyter to figure out how to display this object
-        # we create a scene on the fly with ability to customize 
-        # controls and lights, etc.
-        return self.extrude(1e-9)._repr_mimebundle_(**kwargs)
-
 
     def __add__(self, other):
         return Shape(self.cross_section + other.cross_section)
