@@ -80,13 +80,18 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf4f4f0);
     const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 10000);
+    camera.up.set(0, 0, 1);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(devicePixelRatio);
     document.body.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    controls.enableDamping = false;
+    controls.rotateSpeed = 0.75;
+    controls.zoomSpeed = 0.8;
+    controls.panSpeed = 0.7;
+    controls.screenSpacePanning = false;
     scene.add(new THREE.HemisphereLight(0xffffff, 0x606060, 2.4));
     const key = new THREE.DirectionalLight(0xffffff, 1.5);
     key.position.set(1, -2, 3);
