@@ -176,6 +176,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       display: flex;
       gap: 8px;
     }
+    #tools {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
     #source-name {
       font-weight: 600;
       margin-right: 6px;
@@ -194,6 +199,12 @@ class PreviewHandler(SimpleHTTPRequestHandler):
   <nav id="bar" aria-label="Components">
     <span id="source-name">__SOURCE_NAME__</span>
     <span id="components"></span>
+    <span id="tools">
+      <button type="button" id="reset-view">Reset View</button>
+      <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
+      <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
+      <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
+    </span>
     <span id="status" class="error" aria-live="polite"></span>
   </nav>
   <script type="module">
@@ -204,6 +215,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     const bar = document.querySelector("#bar");
     const components = document.querySelector("#components");
     const status = document.querySelector("#status");
+    const resetViewButton = document.querySelector("#reset-view");
+    const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const showError = (message) => {
       status.textContent = message;
     };
@@ -231,29 +244,65 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     const axes = new THREE.Group();
     scene.add(axes);
 
+    function makeAxis(direction, color, length) {
+      const points = [
+        direction.clone().multiplyScalar(-length),
+        direction.clone().multiplyScalar(length),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({ color, depthTest: false });
+      const line = new THREE.Line(geometry, material);
+      line.renderOrder = 10;
+      return line;
+    }
+
     function drawAxes(length) {
       axes.clear();
-      const origin = new THREE.Vector3(0, 0, 0);
-      const helpers = [
-        new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), origin, length, 0xcc2020, length * 0.15, length * 0.06),
-        new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), origin, length, 0x208a20, length * 0.15, length * 0.06),
-        new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), origin, length, 0x205dcc, length * 0.15, length * 0.06),
-      ];
-      for (const helper of helpers) {
-        helper.renderOrder = 10;
-        helper.traverse((object) => {
-          if (object.material) object.material.depthTest = false;
-        });
-        axes.add(helper);
-      }
+      axes.add(makeAxis(new THREE.Vector3(1, 0, 0), 0xcc2020, length));
+      axes.add(makeAxis(new THREE.Vector3(0, 1, 0), 0x208a20, length));
+      axes.add(makeAxis(new THREE.Vector3(0, 0, 1), 0x205dcc, length));
     }
 
     const loader = new STLLoader();
     let mesh = null;
     let activeName = null;
+    let modelSize = 1;
+    let viewMode = "solid";
+
+    function materialForMode() {
+      if (viewMode === "wireframe") {
+        return new THREE.MeshBasicMaterial({ color: 0x756c1d, wireframe: true });
+      }
+      if (viewMode === "transparent") {
+        return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, transparent: true, opacity: 0.42, depthWrite: false });
+      }
+      return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
+    }
+
+    function applyMode(mode) {
+      viewMode = mode;
+      for (const button of modeButtons) {
+        button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+      }
+      if (mesh) {
+        mesh.material.dispose();
+        mesh.material = materialForMode();
+      }
+    }
+
+    function resetView() {
+      const distance = Math.max(modelSize * 1.45, 10);
+      camera.position.set(distance, -distance, distance);
+      camera.up.set(0, 0, 1);
+      controls.target.set(0, 0, 0);
+      camera.near = Math.max(modelSize / 1000, 0.01);
+      camera.far = Math.max(modelSize * 100, 100);
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
 
     function setActiveButton(name) {
-      for (const button of bar.querySelectorAll("button")) {
+      for (const button of components.querySelectorAll("button")) {
         button.setAttribute("aria-pressed", String(button.dataset.name === name));
       }
     }
@@ -265,23 +314,18 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       loader.load(url, (geometry) => {
       geometry.computeVertexNormals();
       geometry.center();
-      const material = new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
       if (mesh) {
         scene.remove(mesh);
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
-      mesh = new THREE.Mesh(geometry, material);
+      mesh = new THREE.Mesh(geometry, materialForMode());
       scene.add(mesh);
 
       const box = new THREE.Box3().setFromObject(mesh);
-      const size = box.getSize(new THREE.Vector3()).length();
-      drawAxes(Math.max(size * 0.35, 1));
-      camera.position.set(size * 0.55, size * -1.15, size * 0.75);
-      camera.near = Math.max(size / 1000, 0.01);
-      camera.far = Math.max(size * 100, 100);
-      camera.updateProjectionMatrix();
-      controls.update();
+      modelSize = box.getSize(new THREE.Vector3()).length();
+      drawAxes(Math.max(modelSize * 0.5, 1));
+      resetView();
       }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
     }
 
@@ -306,6 +350,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     }
 
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
+
+    resetViewButton.addEventListener("click", resetView);
+    for (const button of modeButtons) {
+      button.addEventListener("click", () => applyMode(button.dataset.mode));
+    }
 
     const events = new EventSource("/events");
     events.addEventListener("change", () => location.reload());
