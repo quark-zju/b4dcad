@@ -2,41 +2,61 @@ import argparse
 import runpy
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from collections import OrderedDict
 from pathlib import Path
 
 from .core import Shape, Solid
 
 
-DEFAULT_NAMES = ("model", "solid", "part", "shape")
+def _require_solid(value, name):
+    if callable(value):
+        value = value()
+    if isinstance(value, Shape):
+        raise TypeError(f"{name} is a Shape; STL export requires a Solid")
+    if not isinstance(value, Solid):
+        raise TypeError(f"{name} must be a b4dcad Solid, got {type(value).__name__}")
+    return value
 
 
-def load_model(script, name=None):
+def load_models(script, name=None):
     namespace = runpy.run_path(script)
     if name:
         if name not in namespace:
             raise ValueError(f"{script} does not define {name!r}")
-        model = namespace[name]
-    else:
-        model = next((namespace[n] for n in DEFAULT_NAMES if n in namespace), None)
-        if model is None and "build" in namespace:
-            model = namespace["build"]
-        if model is None:
-            names = ", ".join(DEFAULT_NAMES + ("build",))
-            raise ValueError(f"{script} must define one of: {names}")
+        return OrderedDict([(name, _require_solid(namespace[name], name))])
 
-    if callable(model):
-        model = model()
-    if isinstance(model, Shape):
-        raise TypeError("STL export requires a Solid; extrude the Shape before exporting")
-    if not isinstance(model, Solid):
-        raise TypeError(f"expected b4dcad Solid, got {type(model).__name__}")
-    return model
+    models = OrderedDict(
+        (key, value)
+        for key, value in namespace.items()
+        if not key.startswith("_") and isinstance(value, Solid)
+    )
+    if models:
+        return models
+
+    raise ValueError(f"{script} does not define any public b4dcad Solid variables")
 
 
-def export_stl(script, output, name=None):
-    model = load_model(script, name)
-    model.stl(output)
-    return model
+def load_model(script, name=None):
+    if name is not None:
+        return next(iter(load_models(script, name).values()))
+    return next(iter(load_models(script).values()))
+
+
+def stl_path(script, directory, name):
+    stem = Path(script).stem
+    return Path(directory) / f"{stem}-{name}.stl"
+
+
+def export_stls(script, directory, name=None):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    paths = OrderedDict()
+    for model_name, model in load_models(script, name).items():
+        path = stl_path(script, directory, model_name)
+        model.stl(path)
+        paths[model_name] = path
+        print(f"Wrote {path}")
+    return paths
 
 
 class PreviewHandler(SimpleHTTPRequestHandler):
@@ -163,12 +183,12 @@ def stl_command(argv=None):
     parser = argparse.ArgumentParser(description="Export a b4dcad Python model to STL.")
     parser.add_argument(
         "script",
-        help="Python script defining model, solid, part, shape, or build()",
+        help="Python script defining public b4dcad Solid variables",
     )
-    parser.add_argument("output", help="Output STL path")
+    parser.add_argument("directory", help="Output directory")
     parser.add_argument("--object", dest="object_name", help="Object or function name to export")
     args = parser.parse_args(argv)
-    export_stl(args.script, args.output, args.object_name)
+    export_stls(args.script, args.directory, args.object_name)
 
 
 def preview_command(argv=None):
@@ -197,7 +217,7 @@ def main(argv=None):
 
     stl_parser = subparsers.add_parser("stl", help="Export a model script to STL")
     stl_parser.add_argument("script")
-    stl_parser.add_argument("output")
+    stl_parser.add_argument("directory")
     stl_parser.add_argument("--object", dest="object_name")
 
     preview_parser = subparsers.add_parser("preview", help="Serve a browser preview")
@@ -208,7 +228,7 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     if args.command == "stl":
-        export_stl(args.script, args.output, args.object_name)
+        export_stls(args.script, args.directory, args.object_name)
     elif args.command == "preview":
         script = str(Path(args.script).resolve())
         handler = partial(PreviewHandler, script=script, object_name=args.object_name)
