@@ -62,6 +62,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { STLLoader } from "three/addons/loaders/STLLoader.js";
+    import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 
     const components = document.querySelector("#components");
     const status = document.querySelector("#status");
@@ -115,18 +116,43 @@
 
     const loader = new STLLoader();
     let mesh = null;
+    let edgeLines = null;
+    let currentGeometry = null;
     let activeName = null;
     let modelSize = 1;
     let viewMode = "solid";
 
     function materialForMode() {
-      if (viewMode === "wireframe") {
-        return new THREE.MeshBasicMaterial({ color: 0x756c1d, wireframe: true });
-      }
       if (viewMode === "transparent") {
         return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, transparent: true, opacity: 0.42, depthWrite: false });
       }
       return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
+    }
+
+    function removeObject(object, disposeGeometry = true) {
+      if (!object) return;
+      scene.remove(object);
+      if (disposeGeometry) object.geometry.dispose();
+      object.material.dispose();
+    }
+
+    function rebuildModelDisplay() {
+      removeObject(mesh, false);
+      removeObject(edgeLines);
+      mesh = null;
+      edgeLines = null;
+      if (!currentGeometry) return;
+
+      if (viewMode === "wireframe") {
+        const edges = new THREE.EdgesGeometry(currentGeometry, 30);
+        const material = new THREE.LineBasicMaterial({ color: 0x756c1d });
+        edgeLines = new THREE.LineSegments(edges, material);
+        scene.add(edgeLines);
+        return;
+      }
+
+      mesh = new THREE.Mesh(currentGeometry, materialForMode());
+      scene.add(mesh);
     }
 
     function applyMode(mode) {
@@ -135,8 +161,9 @@
         button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
       }
       if (mesh) {
-        mesh.material.dispose();
-        mesh.material = materialForMode();
+        rebuildModelDisplay();
+      } else if (edgeLines) {
+        rebuildModelDisplay();
       }
     }
 
@@ -162,17 +189,16 @@
       setActiveButton(name);
       const url = `/model/${encodeURIComponent(name)}.stl?ts=${Date.now()}`;
       loader.load(url, (geometry) => {
+        geometry = mergeVertices(geometry, 1e-5);
         geometry.computeVertexNormals();
         geometry.center();
-        if (mesh) {
-          scene.remove(mesh);
-          mesh.geometry.dispose();
-          mesh.material.dispose();
-        }
-        mesh = new THREE.Mesh(geometry, materialForMode());
-        scene.add(mesh);
+        removeObject(mesh, false);
+        removeObject(edgeLines);
+        if (currentGeometry) currentGeometry.dispose();
+        currentGeometry = geometry;
+        rebuildModelDisplay();
 
-        const box = new THREE.Box3().setFromObject(mesh);
+        const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
         modelSize = box.getSize(new THREE.Vector3()).length();
         drawAxes(Math.max(modelSize * 0.5, 1));
         resetView();
