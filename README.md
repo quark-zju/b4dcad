@@ -1,22 +1,53 @@
 # badcad
 
-a jupyter based cad workflow
+a scriptable CAD workflow built on Manifold
 
 most of the hard work is done by
 - [manifold](https://github.com/elalish/manifold) - constructive solid geometry 
-- [pythreejs](https://github.com/jupyter-widgets/pythreejs) - jupyter 3d previews
+- [three.js](https://threejs.org/) - browser previews
 
-this project aims to focus on usability in a jupyter environment
+this project aims to focus on usability in regular Python files
 
 specifically for creating and exporting functional parts
 
 # setup
 
 ```bash
-pip install git+https://github.com/wrongbad/badcad.git
+pip install -e .
 # optional dependencies (text + svg support)
 pip install pycairo svgelements
+# optional notebook preview support
+pip install -e ".[notebook]"
 ```
+
+# script workflow
+
+Create a model script that defines `model`, `solid`, `part`, or `build()`:
+
+```py
+from badcad import *
+
+model = cube(10, 20, 3, center=True) - cylinder(h=5, r=3, center=True)
+```
+
+Export it to STL:
+
+```bash
+badcad stl part.py part.stl
+# or
+badcad-stl part.py part.stl
+```
+
+Preview it in a browser:
+
+```bash
+badcad preview part.py
+# or
+badcad-preview part.py
+```
+
+The preview reloads the Python model whenever `/model.stl` is requested, so refreshing
+the browser shows current script changes.
 
 # example
 

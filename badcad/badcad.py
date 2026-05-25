@@ -1,7 +1,6 @@
 import manifold3d
 from manifold3d import Manifold, CrossSection, Mesh
 import numpy as np
-from .display import display
 from .normals import triangle_normals
 from .loft import polygon_nearest_alignment
 from .path import PolyPath
@@ -21,6 +20,8 @@ class Solid:
     def _repr_mimebundle_(self, **kwargs):
         if self.is_empty():
             return None
+        from .display import display
+
         raw_mesh = self.to_mesh()
         verts = raw_mesh.vert_properties.astype(np.float32)
         tris = raw_mesh.tri_verts.astype(np.uint32)
