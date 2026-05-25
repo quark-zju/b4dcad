@@ -1,6 +1,8 @@
 import argparse
 import json
 import runpy
+import threading
+import time
 from collections import OrderedDict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,18 +63,39 @@ def export_stls(script, directory, name=None):
 
 
 class PreviewServer(ThreadingHTTPServer):
-    def __init__(self, address, handler, script, object_name=None, write_stl=None):
+    def __init__(
+        self,
+        address,
+        handler,
+        script,
+        object_name=None,
+        write_stl=None,
+        poll_interval=1.0,
+    ):
         super().__init__(address, handler)
         self.script = script
         self.object_name = object_name
         self.write_stl = write_stl
+        self.poll_interval = poll_interval
         self.script_mtime_ns = Path(script).stat().st_mtime_ns
         self.version = self.script_mtime_ns
+        self._change = threading.Condition()
+        self._stop_watcher = threading.Event()
         if write_stl:
             export_stls(script, write_stl, object_name)
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        self._watcher.start()
+
+    def _watch(self):
+        while not self._stop_watcher.wait(self.poll_interval):
+            self.check_for_change()
 
     def check_for_change(self):
-        mtime = Path(self.script).stat().st_mtime_ns
+        try:
+            mtime = Path(self.script).stat().st_mtime_ns
+        except OSError as error:
+            print(f"Failed to stat {self.script}: {error}", flush=True)
+            return False
         if mtime == self.script_mtime_ns:
             return False
         self.script_mtime_ns = mtime
@@ -80,7 +103,22 @@ class PreviewServer(ThreadingHTTPServer):
         print(f"Detected change in {self.script}", flush=True)
         if self.write_stl:
             export_stls(self.script, self.write_stl, self.object_name)
+        with self._change:
+            self._change.notify_all()
         return True
+
+    def wait_for_change(self, version):
+        with self._change:
+            self._change.wait_for(
+                lambda: self.version != version or self._stop_watcher.is_set()
+            )
+            return self.version
+
+    def server_close(self):
+        self._stop_watcher.set()
+        with self._change:
+            self._change.notify_all()
+        super().server_close()
 
 
 class PreviewHandler(SimpleHTTPRequestHandler):
@@ -89,8 +127,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send_html()
             return
+        if path == "/events":
+            self._send_events()
+            return
         if path == "/state.json":
-            self._send_state()
+            self._send_json({"version": self.server.version})
             return
         if path == "/models.json":
             self._send_models()
@@ -228,23 +269,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
-    let version = null;
-    async function pollState() {
-      try {
-        const response = await fetch(`/state.json?ts=${Date.now()}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const state = await response.json();
-        if (version === null) {
-          version = state.version;
-        } else if (version !== state.version) {
-          location.reload();
-        }
-      } catch (error) {
-        showError(`Live preview disconnected: ${error.message || error}`);
-      }
-    }
-    pollState();
-    setInterval(pollState, 1000);
+    const events = new EventSource("/events");
+    events.addEventListener("change", () => location.reload());
+    events.addEventListener("error", () => showError("Live preview disconnected"));
 
     addEventListener("resize", () => {
       camera.aspect = innerWidth / innerHeight;
@@ -281,12 +308,29 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def _available_models(self):
         return load_models(self.server.script, self.server.object_name)
 
-    def _send_state(self):
-        self.server.check_for_change()
-        self._send_json({"version": self.server.version})
-
     def _send_models(self):
         self._send_json(list(self._available_models().keys()))
+
+    def _send_events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        version = self.server.version
+        try:
+            self.wfile.write(f": connected {version}\n\n".encode("utf-8"))
+            self.wfile.flush()
+            while True:
+                version = self.server.wait_for_change(version)
+                if self.server._stop_watcher.is_set():
+                    return
+                data = json.dumps({"version": version})
+                self.wfile.write(f"event: change\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _send_stl(self, name):
         models = self._available_models()
