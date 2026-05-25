@@ -146,12 +146,13 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def _send_html(self):
+        source_name = Path(self.server.script).name
         html = """<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>b4dcad preview</title>
+  <title>__SOURCE_NAME__</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f0; }
     canvas { display: block; }
@@ -171,6 +172,14 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     #bar .error {
       color: #8a1f11;
     }
+    #components {
+      display: flex;
+      gap: 8px;
+    }
+    #source-name {
+      font-weight: 600;
+      margin-right: 6px;
+    }
   </style>
   <script type="importmap">
     {
@@ -182,18 +191,26 @@ class PreviewHandler(SimpleHTTPRequestHandler):
   </script>
 </head>
 <body>
-  <nav id="bar" aria-label="Components"></nav>
+  <nav id="bar" aria-label="Components">
+    <span id="source-name">__SOURCE_NAME__</span>
+    <span id="components"></span>
+    <span id="status" class="error" aria-live="polite"></span>
+  </nav>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
     const bar = document.querySelector("#bar");
+    const components = document.querySelector("#components");
+    const status = document.querySelector("#status");
     const showError = (message) => {
-      const item = document.createElement("span");
-      item.className = "error";
-      item.textContent = message;
-      bar.append(item);
+      status.textContent = message;
+    };
+    const clearError = (message) => {
+      if (!message || status.textContent === message) {
+        status.textContent = "";
+      }
     };
 
     const scene = new THREE.Scene();
@@ -210,6 +227,26 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     const key = new THREE.DirectionalLight(0xffffff, 1.5);
     key.position.set(1, -2, 3);
     scene.add(key);
+
+    const axes = new THREE.Group();
+    scene.add(axes);
+
+    function drawAxes(length) {
+      axes.clear();
+      const origin = new THREE.Vector3(0, 0, 0);
+      const helpers = [
+        new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), origin, length, 0xcc2020, length * 0.15, length * 0.06),
+        new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), origin, length, 0x208a20, length * 0.15, length * 0.06),
+        new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), origin, length, 0x205dcc, length * 0.15, length * 0.06),
+      ];
+      for (const helper of helpers) {
+        helper.renderOrder = 10;
+        helper.traverse((object) => {
+          if (object.material) object.material.depthTest = false;
+        });
+        axes.add(helper);
+      }
+    }
 
     const loader = new STLLoader();
     let mesh = null;
@@ -239,6 +276,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
       const box = new THREE.Box3().setFromObject(mesh);
       const size = box.getSize(new THREE.Vector3()).length();
+      drawAxes(Math.max(size * 0.35, 1));
       camera.position.set(size * 0.55, size * -1.15, size * 0.75);
       camera.near = Math.max(size / 1000, 0.01);
       camera.far = Math.max(size * 100, 100);
@@ -251,14 +289,14 @@ class PreviewHandler(SimpleHTTPRequestHandler):
       const response = await fetch(`/models.json?ts=${Date.now()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const models = await response.json();
-      bar.textContent = "";
+      components.textContent = "";
       for (const name of models) {
         const button = document.createElement("button");
         button.type = "button";
         button.dataset.name = name;
         button.textContent = name;
         button.addEventListener("click", () => loadModel(name));
-        bar.append(button);
+        components.append(button);
       }
       if (models.length === 0) {
         showError("No public b4dcad Solid variables found");
@@ -271,6 +309,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     const events = new EventSource("/events");
     events.addEventListener("change", () => location.reload());
+    events.addEventListener("open", () => clearError("Live preview disconnected"));
     events.addEventListener("error", () => showError("Live preview disconnected"));
 
     addEventListener("resize", () => {
@@ -289,6 +328,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 </body>
 </html>
 """
+        html = html.replace("__SOURCE_NAME__", source_name)
         data = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
