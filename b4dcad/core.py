@@ -48,6 +48,10 @@ def _opposite_face(face):
 
 
 def _align_delta(source_bounds, target_bounds, face, axes):
+    # Face selectors follow the homecad/cqutils convention:
+    #   >X / <X: align the same max/min side on that axis.
+    #   :>X: put source <X against target >X instead of overlapping faces.
+    #   -X: align centers on that axis.
     if face.startswith(":"):
         target_face = face[1:]
         source_face = _opposite_face(target_face)
@@ -126,6 +130,22 @@ class Solid:
         return self.move(dx, dy, dz)
 
     def align_to(self, other, faces="", dx=0, dy=0, dz=0):
+        """Align this solid to another solid using bounding-box face selectors.
+
+        Args:
+            other: Target ``Solid`` to align to.
+            faces: Face selector string/list, such as ``">X <Y"``, ``":>X"``,
+                or ``"-Z"``. Multiple selectors are applied in order.
+            dx: Extra X translation after face alignment.
+            dy: Extra Y translation after face alignment.
+            dz: Extra Z translation after face alignment.
+
+        Selector semantics:
+            ``>X`` / ``<X`` align the same max/min faces on that axis.
+            ``:>X`` aligns this solid's opposite face against the target face,
+            so this solid's ``<X`` touches the target's ``>X`` instead of
+            overlapping it. ``-X``, ``-Y``, and ``-Z`` align centers.
+        """
         solid = self
         for face in _split_faces(faces):
             cdx, cdy, cdz = _align_delta(
@@ -326,6 +346,19 @@ class Shape:
         return self.move(dx, dy)
 
     def align_to(self, other, faces="", dx=0, dy=0):
+        """Align this 2D shape to another shape using bounding-box selectors.
+
+        Args:
+            other: Target ``Shape`` to align to.
+            faces: Face selector string/list, such as ``">X <Y"``, ``":>X"``,
+                or ``"-Y"``. Multiple selectors are applied in order.
+            dx: Extra X translation after face alignment.
+            dy: Extra Y translation after face alignment.
+
+        Selector semantics match ``Solid.align_to`` but only support X/Y axes.
+        ``:`` selectors place the shapes next to each other; ``-`` selectors
+        align centers.
+        """
         shape = self
         for face in _split_faces(faces):
             cdx, cdy = _align_delta(
