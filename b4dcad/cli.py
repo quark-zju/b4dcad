@@ -2,7 +2,6 @@ import argparse
 import json
 import runpy
 from collections import OrderedDict
-from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -61,16 +60,37 @@ def export_stls(script, directory, name=None):
     return paths
 
 
-class PreviewHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, script=None, object_name=None, **kwargs):
+class PreviewServer(ThreadingHTTPServer):
+    def __init__(self, address, handler, script, object_name=None, write_stl=None):
+        super().__init__(address, handler)
         self.script = script
         self.object_name = object_name
-        super().__init__(*args, **kwargs)
+        self.write_stl = write_stl
+        self.script_mtime_ns = Path(script).stat().st_mtime_ns
+        self.version = self.script_mtime_ns
+        if write_stl:
+            export_stls(script, write_stl, object_name)
 
+    def check_for_change(self):
+        mtime = Path(self.script).stat().st_mtime_ns
+        if mtime == self.script_mtime_ns:
+            return False
+        self.script_mtime_ns = mtime
+        self.version = mtime
+        print(f"Detected change in {self.script}", flush=True)
+        if self.write_stl:
+            export_stls(self.script, self.write_stl, self.object_name)
+        return True
+
+
+class PreviewHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             self._send_html()
+            return
+        if path == "/state.json":
+            self._send_state()
             return
         if path == "/models.json":
             self._send_models()
@@ -208,6 +228,24 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
+    let version = null;
+    async function pollState() {
+      try {
+        const response = await fetch(`/state.json?ts=${Date.now()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const state = await response.json();
+        if (version === null) {
+          version = state.version;
+        } else if (version !== state.version) {
+          location.reload();
+        }
+      } catch (error) {
+        showError(`Live preview disconnected: ${error.message || error}`);
+      }
+    }
+    pollState();
+    setInterval(pollState, 1000);
+
     addEventListener("resize", () => {
       camera.aspect = innerWidth / innerHeight;
       camera.updateProjectionMatrix();
@@ -241,7 +279,11 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def _available_models(self):
-        return load_models(self.script, self.object_name)
+        return load_models(self.server.script, self.server.object_name)
+
+    def _send_state(self):
+        self.server.check_for_change()
+        self._send_json({"version": self.server.version})
 
     def _send_models(self):
         self._send_json(list(self._available_models().keys()))
@@ -287,11 +329,17 @@ def preview_command(argv=None):
     parser.add_argument("--object", dest="object_name", help="Object or function name to preview")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--write-stl", dest="write_stl", help="Directory to write STL files")
     args = parser.parse_args(argv)
 
     script = str(Path(args.script).resolve())
-    handler = partial(PreviewHandler, script=script, object_name=args.object_name)
-    server = ThreadingHTTPServer((args.host, args.port), handler)
+    server = PreviewServer(
+        (args.host, args.port),
+        PreviewHandler,
+        script,
+        object_name=args.object_name,
+        write_stl=args.write_stl,
+    )
     print(f"Serving {script} at http://{args.host}:{args.port}")
     server.serve_forever()
 
@@ -310,14 +358,20 @@ def main(argv=None):
     preview_parser.add_argument("--object", dest="object_name")
     preview_parser.add_argument("--host", default="127.0.0.1")
     preview_parser.add_argument("--port", type=int, default=8765)
+    preview_parser.add_argument("--write-stl", dest="write_stl")
 
     args = parser.parse_args(argv)
     if args.command == "stl":
         export_stls(args.script, args.directory, args.object_name)
     elif args.command == "preview":
         script = str(Path(args.script).resolve())
-        handler = partial(PreviewHandler, script=script, object_name=args.object_name)
-        server = ThreadingHTTPServer((args.host, args.port), handler)
+        server = PreviewServer(
+            (args.host, args.port),
+            PreviewHandler,
+            script,
+            object_name=args.object_name,
+            write_stl=args.write_stl,
+        )
         print(f"Serving {script} at http://{args.host}:{args.port}")
         server.serve_forever()
 
