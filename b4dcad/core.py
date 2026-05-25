@@ -9,6 +9,59 @@ from .svg import svg2polygons
 
 stl_dtype = np.dtype([('norm',np.float32,3),('vert',np.float32,9),('pad',np.int8,2)])
 
+
+def _split_faces(faces):
+    return faces.split() if isinstance(faces, str) else list(faces)
+
+
+def _axis_index(axis, axes):
+    axis = axis.upper()
+    if axis not in axes:
+        raise ValueError(f"unsupported axis {axis!r}; expected one of {axes}")
+    return axes.index(axis)
+
+
+def _face_anchor(bounds, face, axes):
+    if face.startswith("-"):
+        i = _axis_index(face[1:], axes)
+        return i, (bounds[i] + bounds[i + len(axes)]) / 2
+
+    if face.startswith("<"):
+        i = _axis_index(face[1:], axes)
+        return i, bounds[i]
+
+    if face.startswith(">"):
+        i = _axis_index(face[1:], axes)
+        return i, bounds[i + len(axes)]
+
+    raise ValueError(f"unsupported face selector {face!r}")
+
+
+def _opposite_face(face):
+    if face.startswith("<"):
+        return ">" + face[1:]
+    if face.startswith(">"):
+        return "<" + face[1:]
+    return face
+
+
+def _align_delta(source_bounds, target_bounds, face, axes):
+    if face.startswith(":"):
+        target_face = face[1:]
+        source_face = _opposite_face(target_face)
+    else:
+        target_face = source_face = face
+
+    source_axis, source = _face_anchor(source_bounds, source_face, axes)
+    target_axis, target = _face_anchor(target_bounds, target_face, axes)
+    if source_axis != target_axis:
+        raise ValueError(f"face selector {face!r} resolves to mismatched axes")
+
+    delta = [0] * len(axes)
+    delta[source_axis] = target - source
+    return delta
+
+
 # wrapper for Manifold
 # tweaks API for scriptable modeling
 class Solid:
@@ -52,6 +105,18 @@ class Solid:
         if z is not None: dz = z-(z0+z1)/2
         if zmax is not None: dz = zmax-z1
         return self.move(dx, dy, dz)
+
+    def align_to(self, other, faces="", dx=0, dy=0, dz=0):
+        solid = self
+        for face in _split_faces(faces):
+            cdx, cdy, cdz = _align_delta(
+                solid.bounding_box(),
+                other.bounding_box(),
+                face,
+                ("X", "Y", "Z"),
+            )
+            solid = solid.move(cdx, cdy, cdz)
+        return solid.move(dx, dy, dz)
 
     def decompose(self):
         return [Solid(m) for m in self.manifold.decompose()]
@@ -100,6 +165,13 @@ class Solid:
 
     def rotate(self, x=0, y=0, z=0):
         return Solid(self.manifold.rotate((x, y, z)))
+
+    def rotate_axis(self, axis, degree):
+        axis = axis.upper()
+        _axis_index(axis, ("X", "Y", "Z"))
+        kwargs = {"x": 0, "y": 0, "z": 0}
+        kwargs[axis.lower()] = degree
+        return self.rotate(**kwargs)
     
     def scale(self, x=1, y=1, z=1):
         return Solid(self.manifold.scale((x, y, z)))
@@ -228,6 +300,18 @@ class Shape:
         if ymax is not None: dy = ymax-y1
         return self.move(dx, dy)
 
+    def align_to(self, other, faces="", dx=0, dy=0):
+        shape = self
+        for face in _split_faces(faces):
+            cdx, cdy = _align_delta(
+                shape.bounds(),
+                other.bounds(),
+                face,
+                ("X", "Y"),
+            )
+            shape = shape.move(cdx, cdy)
+        return shape.move(dx, dy)
+
     def decompose(self):
         return [Shape(p) for p in self.cross_section.decompose()]
 
@@ -331,6 +415,11 @@ class Shape:
 
     def rotate(self, z):
         return Shape(self.cross_section.rotate(z))
+
+    def rotate_axis(self, axis, degree):
+        if axis.upper() != "Z":
+            raise ValueError("2D shapes can only rotate around the Z axis")
+        return self.rotate(degree)
     
     def scale(self, x=1, y=1):
         return Shape(self.cross_section.scale((x, y)))
