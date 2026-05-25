@@ -313,7 +313,9 @@ def stl_command(argv=None):
         help="Python script defining public b4dcad Solid variables",
     )
     parser.add_argument("directory", help="Output directory")
-    parser.add_argument("--object", dest="object_name", help="Object or function name to export")
+    parser.add_argument(
+        "--object", dest="object_name", help="Object or function name to export"
+    )
     args = parser.parse_args(argv)
     export_stls(args.script, args.directory, args.object_name)
 
@@ -326,10 +328,14 @@ def preview_command(argv=None):
         "script",
         help="Python script defining model, solid, part, shape, or build()",
     )
-    parser.add_argument("--object", dest="object_name", help="Object or function name to preview")
+    parser.add_argument(
+        "--object", dest="object_name", help="Object or function name to preview"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--write-stl", dest="write_stl", help="Directory to write STL files")
+    parser.add_argument(
+        "--write-stl", dest="write_stl", help="Directory to write STL files"
+    )
     args = parser.parse_args(argv)
 
     script = str(Path(args.script).resolve())

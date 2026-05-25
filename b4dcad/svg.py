@@ -1,8 +1,10 @@
 from io import BytesIO
 from b4dcad.path import PolyPath
 
+
 def svg2polygons(svg, fn=8, autoclose=True):
     import svgelements
+
     # this lib handles transforms and `use` tags
     svg = svgelements.SVG.parse(BytesIO(svg))
     polys = []
@@ -23,25 +25,25 @@ def svg2polygons(svg, fn=8, autoclose=True):
                 elif isinstance(s, svgelements.Close):
                     p.close()
                 else:
-                    raise ValueError(f'unsupported segment: {type(s)}')
+                    raise ValueError(f"unsupported segment: {type(s)}")
             polys += p.polys
             if autoclose and len(p.poly):
                 polys += [p.poly]
     return polys
 
 
-def shape2svg(shape, unit=''):
+def shape2svg(shape, unit=""):
     b = [*shape.bounds()]
     b[2] -= b[0]
     b[3] -= b[1]
-    bstr = ' '.join([f'{x:.2f}' for x in b])
+    bstr = " ".join([f"{x:.2f}" for x in b])
     polys = shape.to_polygons()
-    path = ''
+    path = ""
     for poly in polys:
-        path += f'M{poly[0][0]:.2f},{poly[0][1]:.2f} '
+        path += f"M{poly[0][0]:.2f},{poly[0][1]:.2f} "
         for p in poly[1:]:
-            path += f'L{p[0]:.2f},{p[1]:.2f} '
-        path += 'Z'
+            path += f"L{p[0]:.2f},{p[1]:.2f} "
+        path += "Z"
     svg = f'<svg width="{b[2]}{unit}" height="{b[3]}{unit}" viewBox="{bstr}">'
     svg += f'<rect fill="#fff" x="{b[0]}" y="{b[1]}" width="{b[2]}" height="{b[3]}"/>'
     svg += '<g transform="scale(1,-1)">'

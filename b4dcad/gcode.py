@@ -7,11 +7,12 @@ from dataclasses import dataclass, field
 # can be useful for text engraving with "Helvetica Neue UltraLight" for example
 # as just tracing the outline of the text with a sharp tool is good enough
 
+
 @dataclass
 class GCode:
-    code: str = "G90\nG21\n" # pos=absolute, units=mm
-    move_speed: float = 300 # mm/min
-    cut_speed: float = 100 # mm/min
+    code: str = "G90\nG21\n"  # pos=absolute, units=mm
+    move_speed: float = 300  # mm/min
+    cut_speed: float = 100  # mm/min
 
     def move_to(self, x, y, z, speed=None):
         speed = speed or self.move_speed

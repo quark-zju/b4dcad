@@ -1,5 +1,5 @@
-
 from io import BytesIO
+
 
 def text2svg(text, size=10, font="Helvetica"):
     import cairo
