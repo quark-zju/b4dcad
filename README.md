@@ -67,6 +67,7 @@ CLI 会读取脚本中所有公开的 `Solid` 变量：
 - 变量名不能以 `_` 开头
 - 变量值必须是 `b4dcad.Solid`
 - 多个变量会作为多个组件处理
+- 变量名以 `show` 开头时只用于网页预览，不会导出 STL
 
 如果使用 `--object NAME`，也可以显式导出或预览某个变量/函数；函数会被调用，返回值必须是 `Solid`。如果是 `Shape`，请先 `extrude()`。
 
@@ -77,6 +78,7 @@ from b4dcad import *
 
 plate = cube(40, 20, 4, center=True)
 pin = cylinder(h=12, r=3, center=True).align(zmin=0)
+show_assembly = plate + pin.align_to(plate, "-X -Y :>Z")
 _debug = sphere(r=5)  # 以下划线开头，不会被 CLI 导出或预览
 ```
 
@@ -142,6 +144,8 @@ b4dcad preview examples/multi_part.py --port 9000
 ```
 
 如果脚本里有多个公开 `Solid` 变量，网页顶部会显示组件导航，可以按变量名切换当前预览的模型。
+
+`show` 开头的组件会排在预览列表前面，适合放组合件、装配预览或调试视图。
 
 预览工具栏提供：
 

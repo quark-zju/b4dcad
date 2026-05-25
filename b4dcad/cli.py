@@ -41,6 +41,25 @@ def load_models(script, name=None):
     raise ValueError(f"{script} does not define any public b4dcad Solid variables")
 
 
+def _preview_sort_key(item):
+    name, _model = item
+    return (0 if name.startswith("show") else 1, name)
+
+
+def preview_models(script, name=None):
+    models = load_models(script, name)
+    return OrderedDict(sorted(models.items(), key=_preview_sort_key))
+
+
+def export_models(script, name=None):
+    models = load_models(script, name)
+    return OrderedDict(
+        (model_name, model)
+        for model_name, model in models.items()
+        if not model_name.startswith("show")
+    )
+
+
 def load_model(script, name=None):
     if name is not None:
         return next(iter(load_models(script, name).values()))
@@ -56,7 +75,7 @@ def export_stls(script, directory, name=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     paths = OrderedDict()
-    for model_name, model in load_models(script, name).items():
+    for model_name, model in export_models(script, name).items():
         path = stl_path(script, directory, model_name)
         model.stl(path)
         paths[model_name] = path
@@ -168,7 +187,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def _available_models(self):
-        return load_models(self.server.script, self.server.object_name)
+        return preview_models(self.server.script, self.server.object_name)
 
     def _send_models(self):
         self._send_json(list(self._available_models().keys()))
