@@ -149,7 +149,7 @@
       if (!currentGeometry) return;
 
       if (viewMode === "wireframe") {
-        const edges = new THREE.EdgesGeometry(currentGeometry, 30);
+        const edges = new THREE.EdgesGeometry(currentGeometry, 1);
         const material = new THREE.LineBasicMaterial({ color: 0x756c1d });
         edgeLines = new THREE.LineSegments(edges, material);
         scene.add(edgeLines);
