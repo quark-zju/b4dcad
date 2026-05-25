@@ -45,20 +45,21 @@ pip install pycairo svgelements
 
 ## 写模型
 
-创建一个 Python 文件，例如 `part.py`：
+创建一个 Python 文件，例如 [examples/multi_part.py](/Users/quark/src/badcad/examples/multi_part.py)：
 
 ```py
 from b4dcad import *
 
-
-body = cube(40, 20, 4, center=True)
+base = cube(48, 28, 4, center=True)
 
 holes = None
-for x in (-12, 0, 12):
-    hole = cylinder(h=8, r=2.2, center=True).move(x=x)
+for x in (-16, 0, 16):
+    hole = cylinder(h=8, r=2.4, center=True).move(x=x)
     holes = hole if holes is None else holes + hole
 
-bracket = body - holes
+mounting_plate = (base - holes).align(zmin=0)
+support_post = cylinder(h=18, r=4, center=True).align(zmin=0)
+rounded_slot = square(30, 8, center=True).offset(2, "round").extrude(3)
 ```
 
 CLI 会读取脚本中所有公开的 `Solid` 变量：
@@ -69,7 +70,7 @@ CLI 会读取脚本中所有公开的 `Solid` 变量：
 
 如果使用 `--object NAME`，也可以显式导出或预览某个变量/函数；函数会被调用，返回值必须是 `Solid`。如果是 `Shape`，请先 `extrude()`。
 
-多组件示例：
+多组件文件里可以同时放多个导出组件：
 
 ```py
 from b4dcad import *
@@ -82,13 +83,13 @@ _debug = sphere(r=5)  # 以下划线开头，不会被 CLI 导出或预览
 ## 导出 STL
 
 ```bash
-b4dcad stl part.py ./stl
+b4dcad stl examples/multi_part.py ./stl
 ```
 
 也可以使用短命令：
 
 ```bash
-b4dcad-stl part.py ./stl
+b4dcad-stl examples/multi_part.py ./stl
 ```
 
 输出文件名格式：
@@ -97,17 +98,18 @@ b4dcad-stl part.py ./stl
 输出目录/源文件 basename-组件名.stl
 ```
 
-例如 `part.py` 中有 `plate` 和 `pin`：
+例如 `examples/multi_part.py` 会生成：
 
 ```text
-stl/part-plate.stl
-stl/part-pin.stl
+stl/multi_part-mounting_plate.stl
+stl/multi_part-support_post.stl
+stl/multi_part-rounded_slot.stl
 ```
 
 指定单个导出的对象名：
 
 ```bash
-b4dcad stl part.py ./stl --object plate
+b4dcad stl examples/multi_part.py ./stl --object support_post
 ```
 
 也可以在 Python 中直接导出：
@@ -124,7 +126,7 @@ model.stl("part.stl")
 启动预览服务：
 
 ```bash
-b4dcad preview part.py
+b4dcad preview examples/multi_part.py
 ```
 
 默认地址：
@@ -136,7 +138,7 @@ http://127.0.0.1:8765/
 也可以指定端口：
 
 ```bash
-b4dcad preview part.py --port 9000
+b4dcad preview examples/multi_part.py --port 9000
 ```
 
 如果脚本里有多个公开 `Solid` 变量，网页顶部会显示组件导航，可以按变量名切换当前预览的模型。
@@ -148,7 +150,7 @@ b4dcad preview part.py --port 9000
 预览时同时写出 STL：
 
 ```bash
-b4dcad preview part.py --write-stl ./stl
+b4dcad preview examples/multi_part.py --write-stl ./stl
 ```
 
 给了 `--write-stl` 后，启动预览时会先导出一次；之后文件变化也会重新导出。
