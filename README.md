@@ -45,7 +45,7 @@ pip install pycairo svgelements
 
 ## 写模型
 
-创建一个 Python 文件，例如 [examples/multi_part.py](/Users/quark/src/badcad/examples/multi_part.py)：
+创建一个 Python 文件，例如 [examples/multi_part.py](examples/multi_part.py)：
 
 ```py
 from b4dcad import *

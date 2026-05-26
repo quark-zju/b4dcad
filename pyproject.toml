@@ -1,3 +1,38 @@
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "b4dcad"
+version = "0.1.1"
+description = "Personal 3D printing CAD workflow built on Manifold"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "wrongbad" },
+    { name = "quark" },
+]
+maintainers = [
+    { name = "quark" },
+]
+dependencies = [
+    "manifold3d",
+    "numpy",
+]
+
+[project.urls]
+Homepage = "https://github.com/quark-zju/b4dcad"
+Source = "https://github.com/quark-zju/b4dcad"
+Upstream = "https://github.com/wrongbad/badcad"
+
+[project.scripts]
+b4dcad = "b4dcad.cli:main"
+b4dcad-stl = "b4dcad.cli:stl_command"
+b4dcad-preview = "b4dcad.cli:preview_command"
+
+[tool.setuptools.packages.find]
+include = ["b4dcad*"]
+
+[tool.setuptools.package-data]
+b4dcad = ["preview.html"]
