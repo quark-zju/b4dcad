@@ -1,4 +1,5 @@
 import argparse
+import importlib.resources
 import json
 import runpy
 import threading
@@ -10,7 +11,15 @@ from urllib.parse import unquote, urlparse
 
 from .core import Shape, Solid
 
-PREVIEW_HTML = Path(__file__).with_name("preview.html")
+PREVIEW_HTML = "preview.html"
+
+
+def load_preview_html():
+    local = Path(__file__).with_name(PREVIEW_HTML)
+    if local.exists():
+        return local.read_text()
+    return importlib.resources.files("b4dcad").joinpath(PREVIEW_HTML).read_text()
+
 
 
 def _require_solid(value, name):
@@ -168,7 +177,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def _send_html(self):
         source_name = Path(self.server.script).name
-        html = PREVIEW_HTML.read_text()
+        html = load_preview_html()
         html = html.replace("__SOURCE_NAME__", source_name)
         data = html.encode("utf-8")
         self.send_response(200)
