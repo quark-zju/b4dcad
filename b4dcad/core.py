@@ -1,11 +1,11 @@
 import manifold3d
-from manifold3d import Manifold, CrossSection, Mesh
 import numpy as np
-from .normals import triangle_normals
+from manifold3d import CrossSection, Manifold, Mesh
+
 from .loft import polygon_nearest_alignment
-from .path import PolyPath
-from .text import text2svg
+from .normals import triangle_normals
 from .svg import svg2polygons
+from .text import text2svg
 
 stl_dtype = np.dtype(
     [("norm", np.float32, 3), ("vert", np.float32, 9), ("pad", np.int8, 2)]
@@ -644,6 +644,7 @@ def threads(
 
 def load_stl(filename=None, data=None):
     if data is None:
+        assert isinstance(filename, str)
         with open(filename, "rb") as f:
             data = f.read()
     data = np.frombuffer(data[84:], stl_dtype)
