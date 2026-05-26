@@ -21,7 +21,6 @@ def load_preview_html():
     return importlib.resources.files("b4dcad").joinpath(PREVIEW_HTML).read_text()
 
 
-
 def _require_solid(value, name):
     if callable(value):
         value = value()
@@ -92,6 +91,28 @@ def export_stls(script, directory, name=None):
     return paths
 
 
+def build_preview_cache(script, name=None):
+    models = preview_models(script, name)
+    return OrderedDict(
+        (model_name, model.stl()) for model_name, model in models.items()
+    )
+
+
+def write_cached_stls(script, directory, cache):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    paths = OrderedDict()
+    for model_name, data in cache.items():
+        if model_name.startswith("show"):
+            continue
+        path = stl_path(script, directory, model_name)
+        with open(path, "wb") as f:
+            f.write(data)
+        paths[model_name] = path
+        print(f"Wrote {path}")
+    return paths
+
+
 class PreviewServer(ThreadingHTTPServer):
     def __init__(
         self,
@@ -102,6 +123,10 @@ class PreviewServer(ThreadingHTTPServer):
         write_stl=None,
         poll_interval=1.0,
     ):
+        self._cache_lock = threading.RLock()
+        self._stl_cache = OrderedDict()
+        self._change = threading.Condition()
+        self._stop_watcher = threading.Event()
         super().__init__(address, handler)
         self.script = script
         self.object_name = object_name
@@ -109,12 +134,29 @@ class PreviewServer(ThreadingHTTPServer):
         self.poll_interval = poll_interval
         self.script_mtime_ns = Path(script).stat().st_mtime_ns
         self.version = self.script_mtime_ns
-        self._change = threading.Condition()
-        self._stop_watcher = threading.Event()
-        if write_stl:
-            export_stls(script, write_stl, object_name)
+        self.rebuild_cache(write_files=bool(write_stl))
         self._watcher = threading.Thread(target=self._watch, daemon=True)
         self._watcher.start()
+
+    def rebuild_cache(self, write_files=False):
+        cache = build_preview_cache(self.script, self.object_name)
+        with self._cache_lock:
+            self._stl_cache = cache
+        if write_files and self.write_stl:
+            write_cached_stls(self.script, self.write_stl, cache)
+        return cache
+
+    def model_names(self):
+        with self._cache_lock:
+            return list(self._stl_cache.keys())
+
+    def stl_bytes(self, name=None):
+        with self._cache_lock:
+            if name is None:
+                return next(iter(self._stl_cache.values()))
+            if name not in self._stl_cache:
+                return None
+            return self._stl_cache[name]
 
     def _watch(self):
         while not self._stop_watcher.wait(self.poll_interval):
@@ -131,8 +173,7 @@ class PreviewServer(ThreadingHTTPServer):
         self.script_mtime_ns = mtime
         self.version = mtime
         print(f"Detected change in {self.script}", flush=True)
-        if self.write_stl:
-            export_stls(self.script, self.write_stl, self.object_name)
+        self.rebuild_cache(write_files=bool(self.write_stl))
         with self._change:
             self._change.notify_all()
         return True
@@ -195,11 +236,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _available_models(self):
-        return preview_models(self.server.script, self.server.object_name)
-
     def _send_models(self):
-        self._send_json(list(self._available_models().keys()))
+        self._send_json(self.server.model_names())
 
     def _send_events(self):
         self.send_response(200)
@@ -223,15 +261,10 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             return
 
     def _send_stl(self, name):
-        models = self._available_models()
-        if name is None:
-            model = next(iter(models.values()))
-        else:
-            if name not in models:
-                self.send_error(404, f"Unknown model {name!r}")
-                return
-            model = models[name]
-        data = model.stl()
+        data = self.server.stl_bytes(name)
+        if data is None:
+            self.send_error(404, f"Unknown model {name!r}")
+            return
         self.send_response(200)
         self.send_header("Content-Type", "model/stl")
         self.send_header("Cache-Control", "no-store")
