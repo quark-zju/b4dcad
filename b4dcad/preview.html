@@ -222,10 +222,13 @@
       }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
     }
 
+    let modelListRefresh = Promise.resolve();
+
     async function loadModelList() {
       const response = await fetch(`/models.json?ts=${Date.now()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const models = await response.json();
+      clearError();
       components.textContent = "";
       for (const name of models) {
         const button = document.createElement("button");
@@ -242,6 +245,14 @@
       loadModel(models.includes(activeName) ? activeName : models[0]);
     }
 
+    function refreshModelList() {
+      modelListRefresh = modelListRefresh
+        .catch(() => {})
+        .then(() => loadModelList())
+        .catch((error) => showError(`Failed to refresh models: ${error.message || error}`));
+      return modelListRefresh;
+    }
+
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
     resetViewButton.addEventListener("click", resetView);
@@ -250,7 +261,7 @@
     }
 
     const events = new EventSource("/events");
-    events.addEventListener("change", () => location.reload());
+    events.addEventListener("change", refreshModelList);
     events.addEventListener("open", () => clearError("Live preview disconnected"));
     events.addEventListener("error", () => showError("Live preview disconnected"));
 
