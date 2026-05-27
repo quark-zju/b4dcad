@@ -16,7 +16,11 @@
 
 Manifold CAD 的取舍更适合我的很多 3D 打印场景：它用 mesh/Manifold 的方式做 CSG，通常性能更好，精度损失对 FDM 打印模型可以接受。
 
+但这并不意味着完全替代 CadQuery。实际建模时，有些 OCCT/CadQuery 功能仍然很方便，例如倒角、圆角和依赖拓扑选择器的局部操作；这些不是 Manifold 擅长的方向。
+
 `b4dcad` 保留了类似 CadQuery 的链式/组合式写法，但底层使用 `manifold3d`，主要服务于个人模型脚本和 STL 生成。
+
+因此本项目也提供了一定的 CadQuery 互通能力：可以先用 CadQuery 做少量拓扑敏感操作，再转到 b4dcad/Manifold 处理密集孔、阵列和重复布尔。
 
 ## 来源
 
