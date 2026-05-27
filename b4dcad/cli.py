@@ -2,8 +2,8 @@ import argparse
 import importlib.resources
 import json
 import runpy
+import sys
 import threading
-import time
 from collections import OrderedDict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -332,6 +332,9 @@ def main(argv=None):
     preview_parser.add_argument("--host", default="127.0.0.1")
     preview_parser.add_argument("--port", type=int, default=8765)
     preview_parser.add_argument("--write-stl", dest="write_stl")
+
+    # allow relative import
+    sys.path.insert(0, ".")
 
     args = parser.parse_args(argv)
     if args.command == "stl":
