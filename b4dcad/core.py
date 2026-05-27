@@ -10,6 +10,7 @@ from .text import text2svg
 stl_dtype = np.dtype(
     [("norm", np.float32, 3), ("vert", np.float32, 9), ("pad", np.int8, 2)]
 )
+CQ_TESSELLATION_TOLERANCE = 0.05
 
 
 def _split_faces(faces):
@@ -306,6 +307,20 @@ class Solid:
             return self
         else:
             return binary
+
+    def to_cq(self):
+        """Convert this b4dcad Solid to a CadQuery Workplane.
+
+        This is a slow fallback path: Manifold geometry is serialized as STL,
+        sewn into OCCT shells, converted to solids, and simplified. Prefer doing
+        topology-sensitive OCCT operations such as fillet/chamfer in CadQuery
+        first, then call from_cq() once before doing dense holes/repeated
+        booleans in b4dcad.
+
+        CadQuery and OCP are imported lazily here so normal b4dcad scripts do
+        not pay their import cost unless this bridge is actually used.
+        """
+        return _solid_to_cq(self)
 
 
 class Shape:
@@ -653,6 +668,103 @@ def load_stl(filename=None, data=None):
     m = Mesh(verts, idx)
     m.merge()
     return Solid(Manifold(m))
+
+
+def _solid_to_cq(solid):
+    import tempfile
+
+    import cadquery as cq
+    from cadquery.occ_impl.shapes import downcast
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+    from OCP.StlAPI import StlAPI_Reader
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS_Shape
+
+    with tempfile.NamedTemporaryFile(suffix=".stl") as f:
+        f.write(solid.stl())
+        f.flush()
+        shape = TopoDS_Shape()
+        if not StlAPI_Reader().Read(shape, f.name) or shape.IsNull():
+            raise ValueError("Could not convert b4dcad STL mesh to a CadQuery shape")
+
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    sewing.Add(shape)
+    sewing.Perform()
+    sewed = downcast(sewing.SewedShape())
+
+    solids = []
+    if sewed.ShapeType() == TopAbs_SOLID:
+        solids.append(cq.Solid.cast(sewed))
+    else:
+        shells = TopExp_Explorer(sewed, TopAbs_SHELL)
+        while shells.More():
+            shell = downcast(shells.Current())
+            solids.append(cq.Solid.cast(BRepBuilderAPI_MakeSolid(shell).Solid()))
+            shells.Next()
+
+    if not solids:
+        raise ValueError("Could not sew b4dcad STL mesh into a CadQuery solid")
+
+    unified_solids = []
+    for solid in solids:
+        unify = ShapeUpgrade_UnifySameDomain(solid.wrapped, True, True, True)
+        unify.SetLinearTolerance(1e-5)
+        unify.SetAngularTolerance(1e-5)
+        unify.AllowInternalEdges(False)
+        unify.Build()
+        unified_solids.append(cq.Solid.cast(unify.Shape()))
+
+    return cq.Workplane().newObject(unified_solids)
+
+
+def to_cq(obj):
+    """Convert a b4dcad Solid or manifold3d Manifold to a CadQuery Workplane."""
+    if isinstance(obj, Manifold):
+        obj = Solid(obj)
+    if not isinstance(obj, Solid):
+        raise TypeError(
+            f"to_cq expects a b4dcad Solid or manifold3d Manifold, got {type(obj).__name__}"
+        )
+    return obj.to_cq()
+
+
+def from_cq(obj, tolerance=CQ_TESSELLATION_TOLERANCE):
+    """Convert a CadQuery Workplane to a b4dcad Solid.
+
+    The conversion tessellates the CadQuery OCCT shape into triangle meshes, so
+    it is suitable for b4dcad/Manifold booleans and STL workflows, but it does
+    not preserve OCCT faces, edges, or parametric CAD topology.
+
+    CadQuery is imported lazily here so normal b4dcad scripts do not pay its
+    import cost unless this bridge is actually used.
+
+    Args:
+        obj: CadQuery Workplane to convert.
+        tolerance: Linear tessellation tolerance passed to CadQuery.
+    """
+    import cadquery as cq
+
+    if not isinstance(obj, cq.Workplane):
+        raise TypeError(
+            f"from_cq expects a CadQuery Workplane, got {type(obj).__name__}"
+        )
+
+    verts = []
+    tris = []
+    for shape in obj.vals():
+        shape_verts, shape_tris = shape.tessellate(tolerance)
+        offset = len(verts)
+        verts.extend(v.toTuple() for v in shape_verts)
+        tris.extend(tuple(i + offset for i in tri) for tri in shape_tris)
+
+    if not verts:
+        return Solid()
+
+    mesh = Mesh(np.array(verts, np.float32), np.array(tris, np.int32))
+    mesh.merge()
+    return Solid(Manifold(mesh))
 
 
 set_circular_segments(64)  # set default

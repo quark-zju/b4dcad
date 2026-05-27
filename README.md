@@ -105,6 +105,20 @@ rounded_ring = (
 
 CadQuery 是可选依赖；CLI 会先用轻量类型名检查寻找 `Workplane`，只有发现疑似 CadQuery 对象时才 import CadQuery。
 
+Python 代码里也可以显式转换：
+
+```py
+import cadquery as cq
+import b4dcad as b4d
+
+cq_part = cq.Workplane("XY").box(40, 20, 4).edges("|Z").fillet(2)
+b4d_part = b4d.from_cq(cq_part, tolerance=0.05)
+
+cq_mesh_part = b4d_part.to_cq()
+```
+
+`from_cq()` 是推荐方向：先用 CadQuery/OCCT 做 fillet、chamfer 等拓扑敏感操作，再转到 b4dcad/Manifold 做大量孔、阵列和重复布尔。`to_cq()` 是慢速 fallback，会把 Manifold mesh 通过 STL 转回 OCCT faceted solid；普通 b4dcad 脚本不会 import CadQuery，只有调用这些互通 API 时才 lazy import。
+
 ## 导出 STL
 
 ```bash
