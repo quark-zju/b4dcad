@@ -148,10 +148,13 @@
         direction.clone().multiplyScalar(length),
       ];
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({ color, depthTest: false });
+      const material = new THREE.LineBasicMaterial({ color, depthTest: true });
       const line = new THREE.Line(geometry, material);
-      line.renderOrder = 10;
       return line;
+    }
+
+    function axisLengthForModel() {
+      return Math.max(modelSize * 12, 120);
     }
 
     function drawAxes(length) {
@@ -220,7 +223,7 @@
       camera.up.set(0, 0, 1);
       controls.target.set(0, 0, 0);
       camera.near = Math.max(modelSize / 1000, 0.01);
-      camera.far = Math.max(modelSize * 100, 100);
+      camera.far = Math.max(modelSize * 100, axisLengthForModel() * 2, 100);
       camera.updateProjectionMatrix();
       controls.update();
     }
@@ -247,7 +250,7 @@
 
         const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
         modelSize = box.getSize(new THREE.Vector3()).length();
-        drawAxes(Math.max(modelSize * 0.5, 1));
+        drawAxes(axisLengthForModel());
         resetView();
       }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
     }
