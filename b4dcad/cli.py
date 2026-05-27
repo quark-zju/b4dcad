@@ -4,6 +4,7 @@ import json
 import runpy
 import sys
 import threading
+import traceback
 from collections import OrderedDict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -125,6 +126,7 @@ class PreviewServer(ThreadingHTTPServer):
     ):
         self._cache_lock = threading.RLock()
         self._stl_cache = OrderedDict()
+        self._error = None
         self._change = threading.Condition()
         self._stop_watcher = threading.Event()
         super().__init__(address, handler)
@@ -139,9 +141,21 @@ class PreviewServer(ThreadingHTTPServer):
         self._watcher.start()
 
     def rebuild_cache(self, write_files=False):
-        cache = build_preview_cache(self.script, self.object_name)
+        try:
+            cache = build_preview_cache(self.script, self.object_name)
+        except Exception as error:
+            preview_error = {
+                "message": str(error),
+                "traceback": traceback.format_exc(),
+            }
+            with self._cache_lock:
+                self._error = preview_error
+            print(preview_error["traceback"], flush=True)
+            return None
+
         with self._cache_lock:
             self._stl_cache = cache
+            self._error = None
         if write_files and self.write_stl:
             write_cached_stls(self.script, self.write_stl, cache)
         return cache
@@ -149,6 +163,14 @@ class PreviewServer(ThreadingHTTPServer):
     def model_names(self):
         with self._cache_lock:
             return list(self._stl_cache.keys())
+
+    def state(self):
+        with self._cache_lock:
+            return {
+                "version": self.version,
+                "models": list(self._stl_cache.keys()),
+                "error": self._error,
+            }
 
     def stl_bytes(self, name=None):
         with self._cache_lock:
@@ -202,7 +224,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             self._send_events()
             return
         if path == "/state.json":
-            self._send_json({"version": self.server.version})
+            self._send_json(self.server.state())
             return
         if path == "/models.json":
             self._send_models()

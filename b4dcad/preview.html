@@ -34,6 +34,25 @@
     #bar .error {
       color: #8a1f11;
     }
+    #error-panel {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      top: 58px;
+      z-index: 2;
+      max-height: 42vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: #2b120f;
+      background: #fff8f7;
+      border: 1px solid #d7a29a;
+      padding: 10px 12px;
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+    }
+    #error-panel[hidden] {
+      display: none;
+    }
     #components {
       display: flex;
     }
@@ -70,6 +89,7 @@
     </span>
     <span id="status" class="error" aria-live="polite"></span>
   </nav>
+  <pre id="error-panel" hidden></pre>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -78,14 +98,24 @@
 
     const components = document.querySelector("#components");
     const status = document.querySelector("#status");
+    const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const showError = (message) => {
       status.textContent = message;
+      errorPanel.hidden = true;
+      errorPanel.textContent = "";
+    };
+    const showBuildError = (error) => {
+      status.textContent = `Model build failed: ${error.message || "unknown error"}`;
+      errorPanel.textContent = error.traceback || error.message || "Unknown model build error";
+      errorPanel.hidden = false;
     };
     const clearError = (message) => {
       if (!message || status.textContent === message) {
         status.textContent = "";
+        errorPanel.hidden = true;
+        errorPanel.textContent = "";
       }
     };
 
@@ -225,10 +255,15 @@
     let modelListRefresh = Promise.resolve();
 
     async function loadModelList() {
-      const response = await fetch(`/models.json?ts=${Date.now()}`);
+      const response = await fetch(`/state.json?ts=${Date.now()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const models = await response.json();
-      clearError();
+      const state = await response.json();
+      const models = state.models || [];
+      if (state.error) {
+        showBuildError(state.error);
+      } else {
+        clearError();
+      }
       components.textContent = "";
       for (const name of models) {
         const button = document.createElement("button");
@@ -239,7 +274,9 @@
         components.append(button);
       }
       if (models.length === 0) {
-        showError("No public b4dcad Solid variables found");
+        if (!state.error) {
+          showError("No public b4dcad Solid variables found");
+        }
         return;
       }
       loadModel(models.includes(activeName) ? activeName : models[0]);
