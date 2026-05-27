@@ -21,6 +21,11 @@ dependencies = [
     "numpy",
 ]
 
+[project.optional-dependencies]
+cadquery = [
+    "cadquery",
+]
+
 [project.urls]
 Homepage = "https://github.com/quark-zju/b4dcad"
 Source = "https://github.com/quark-zju/b4dcad"

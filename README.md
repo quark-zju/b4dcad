@@ -37,6 +37,12 @@ pip install -e .
 - `manifold3d`
 - `numpy`
 
+可选：如果希望 `preview` 和 `stl` 命令直接接受 CadQuery `Workplane` 变量，可以安装：
+
+```bash
+pip install -e ".[cadquery]"
+```
+
 可选：如果使用 `text()` 或 SVG 相关能力，可能还需要：
 
 ```bash
@@ -62,14 +68,14 @@ support_post = cylinder(h=18, r=4, center=True).align(zmin=0)
 rounded_slot = square(30, 8, center=True).offset(2, "round").extrude(3)
 ```
 
-CLI 会读取脚本中所有公开的 `Solid` 变量：
+CLI 会读取脚本中所有公开的 `Solid` 或 CadQuery `Workplane` 变量：
 
 - 变量名不能以 `_` 开头
-- 变量值必须是 `b4dcad.Solid`
+- 变量值必须是 `b4dcad.Solid` 或 CadQuery `Workplane`
 - 多个变量会作为多个组件处理
 - 变量名以 `show` 开头时只用于网页预览，不会导出 STL
 
-如果使用 `--object NAME`，也可以显式导出或预览某个变量/函数；函数会被调用，返回值必须是 `Solid`。如果是 `Shape`，请先 `extrude()`。
+如果使用 `--object NAME`，也可以显式导出或预览某个变量/函数；函数会被调用，返回值必须是 `Solid` 或 CadQuery `Workplane`。如果是 `Shape`，请先 `extrude()`。
 
 多组件文件里可以同时放多个导出组件：
 
@@ -81,6 +87,23 @@ pin = cylinder(h=12, r=3, center=True).align(zmin=0)
 show_assembly = plate + pin.align_to(plate, "-X -Y :>Z")
 _debug = sphere(r=5)  # 以下划线开头，不会被 CLI 导出或预览
 ```
+
+也可以让 CadQuery 负责少量需要 OCCT 拓扑的操作，然后交给 `b4dcad` 命令预览或导出：
+
+```py
+import cadquery as cq
+
+rounded_ring = (
+    cq.Workplane("XY")
+    .circle(35)
+    .circle(25.6)
+    .extrude(17)
+    .faces(">Z")
+    .fillet(3)
+)
+```
+
+CadQuery 是可选依赖；CLI 会先用轻量类型名检查寻找 `Workplane`，只有发现疑似 CadQuery 对象时才 import CadQuery。
 
 ## 导出 STL
 

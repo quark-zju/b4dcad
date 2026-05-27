@@ -3,6 +3,7 @@ import importlib.resources
 import json
 import runpy
 import sys
+import tempfile
 import threading
 import traceback
 from collections import OrderedDict
@@ -13,6 +14,7 @@ from urllib.parse import unquote, urlparse
 from .core import Shape, Solid
 
 PREVIEW_HTML = "preview.html"
+CADQUERY_STL_TOLERANCE = 0.05
 
 
 def load_preview_html():
@@ -22,14 +24,64 @@ def load_preview_html():
     return importlib.resources.files("b4dcad").joinpath(PREVIEW_HTML).read_text()
 
 
-def _require_solid(value, name):
+def _is_cadquery_workplane(value):
+    if type(value).__name__ != "Workplane":
+        return False
+    try:
+        import cadquery as cq
+    except ImportError as e:
+        raise TypeError(
+            "object looks like a CadQuery Workplane, but cadquery is not installed"
+        ) from e
+    return isinstance(value, cq.Workplane)
+
+
+def is_model(value):
+    return isinstance(value, Solid) or _is_cadquery_workplane(value)
+
+
+def _require_model(value, name):
     if callable(value):
         value = value()
     if isinstance(value, Shape):
         raise TypeError(f"{name} is a Shape; STL export requires a Solid")
-    if not isinstance(value, Solid):
-        raise TypeError(f"{name} must be a b4dcad Solid, got {type(value).__name__}")
+    if not is_model(value):
+        raise TypeError(
+            f"{name} must be a b4dcad Solid or CadQuery Workplane, got {type(value).__name__}"
+        )
     return value
+
+
+def model_stl_bytes(model):
+    if isinstance(model, Solid):
+        return model.stl()
+
+    if _is_cadquery_workplane(model):
+        import cadquery as cq
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".stl", delete=False)
+        try:
+            tmp.close()
+            cq.exporters.export(
+                model,
+                tmp.name,
+                exportType="STL",
+                tolerance=CADQUERY_STL_TOLERANCE,
+            )
+            return Path(tmp.name).read_bytes()
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    raise TypeError(f"unsupported model type {type(model).__name__}")
+
+
+def write_model_stl(model, path):
+    if isinstance(model, Solid):
+        return model.stl(path)
+    data = model_stl_bytes(model)
+    with open(path, "wb") as f:
+        f.write(data)
+    return model
 
 
 def load_models(script, name=None):
@@ -37,17 +89,19 @@ def load_models(script, name=None):
     if name:
         if name not in namespace:
             raise ValueError(f"{script} does not define {name!r}")
-        return OrderedDict([(name, _require_solid(namespace[name], name))])
+        return OrderedDict([(name, _require_model(namespace[name], name))])
 
     models = OrderedDict(
         (key, value)
         for key, value in namespace.items()
-        if not key.startswith("_") and isinstance(value, Solid)
+        if not key.startswith("_") and is_model(value)
     )
     if models:
         return models
 
-    raise ValueError(f"{script} does not define any public b4dcad Solid variables")
+    raise ValueError(
+        f"{script} does not define any public b4dcad Solid or CadQuery Workplane variables"
+    )
 
 
 def _preview_sort_key(item):
@@ -86,7 +140,7 @@ def export_stls(script, directory, name=None):
     paths = OrderedDict()
     for model_name, model in export_models(script, name).items():
         path = stl_path(script, directory, model_name)
-        model.stl(path)
+        write_model_stl(model, path)
         paths[model_name] = path
         print(f"Wrote {path}")
     return paths
@@ -95,7 +149,7 @@ def export_stls(script, directory, name=None):
 def build_preview_cache(script, name=None):
     models = preview_models(script, name)
     return OrderedDict(
-        (model_name, model.stl()) for model_name, model in models.items()
+        (model_name, model_stl_bytes(model)) for model_name, model in models.items()
     )
 
 
@@ -296,10 +350,10 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
 
 def stl_command(argv=None):
-    parser = argparse.ArgumentParser(description="Export a b4dcad Python model to STL.")
+    parser = argparse.ArgumentParser(description="Export a Python CAD model to STL.")
     parser.add_argument(
         "script",
-        help="Python script defining public b4dcad Solid variables",
+        help="Python script defining public b4dcad Solid or CadQuery Workplane variables",
     )
     parser.add_argument("directory", help="Output directory")
     parser.add_argument(
@@ -311,11 +365,11 @@ def stl_command(argv=None):
 
 def preview_command(argv=None):
     parser = argparse.ArgumentParser(
-        description="Serve a browser STL preview for a b4dcad Python model."
+        description="Serve a browser STL preview for a Python CAD model."
     )
     parser.add_argument(
         "script",
-        help="Python script defining model, solid, part, shape, or build()",
+        help="Python script defining public b4dcad Solid or CadQuery Workplane variables",
     )
     parser.add_argument(
         "--object", dest="object_name", help="Object or function name to preview"
