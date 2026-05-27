@@ -79,15 +79,11 @@ b4dcad preview path/to/model.py
 
 ## 动机
 
-我之前主要使用 Python + CadQuery + CQ-editor 做 3D 打印模型。CadQuery 的 OCCT 内核精度高、能力完整，但在多孔、阵列、重复结构和复杂布尔运算上经常偏慢。
+我一直用 Python + CadQuery + CQ-editor 做 3D 打印模型。OCCT 内核精度出色，但遇到多孔、阵列、重复结构或复杂布尔时很容易卡——而这些恰恰是 3D 打印零件里的家常便饭。
 
-Manifold CAD 的取舍更适合我的很多 3D 打印场景：它用 mesh/Manifold 的方式做 CSG，通常性能更好，精度损失对 FDM 打印模型可以接受。
+Manifold 用 mesh 做 CSG，性能好得多，精度对 FDM 打印完全够用。所以我把建模中那些"蛮力"部分——打孔、阵列、重复布尔——交给 Manifold，需要精确拓扑操作（比如倒角、圆角、面选择）时仍然回头用 CadQuery。
 
-但这并不意味着完全替代 CadQuery。实际建模时，有些 OCCT/CadQuery 功能仍然很方便，例如倒角、圆角和依赖拓扑选择器的局部操作；这些不是 Manifold 擅长的方向。
-
-`b4dcad` 保留了类似 CadQuery 的链式/组合式写法，但底层使用 `manifold3d`，主要服务于个人模型脚本和 STL 生成。
-
-因此本项目也提供了一定的 CadQuery 互通能力：可以先用 CadQuery 做少量拓扑敏感操作，再转到 b4dcad/Manifold 处理密集孔、阵列和重复布尔。
+`b4dcad` 本质就是给 Manifold 包了一层 CadQuery 风格的链式写法，让习惯 CadQuery 的人可以直接上手，同时又能跟 CadQuery 互转：先用 CadQuery 做完倒角圆角，转过来跑密集孔和阵列。
 
 ## 来源
 
@@ -144,11 +140,4 @@ solid = profile.extrude(4)
 bolt = threads(d=8, h=16, pitch=1)
 ```
 
-## 项目边界
 
-`b4dcad` 目前是个人工作流工具，不追求完整替代 CadQuery 或机械 CAD：
-
-- 不包含 notebook 集成
-- 不做 STEP 导入导出
-- STL 是主要输出格式
-- 网页预览用于快速检查和切换组件，不是完整编辑器
