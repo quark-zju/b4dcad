@@ -109,7 +109,7 @@ class Solid:
         zmax=None,
     ):
         x0, y0, z0, x1, y1, z1 = self.bounding_box()
-        dx, dy, dz = 0, 0, 0
+        dx, dy, dz = 0.0, 0.0, 0.0
         if xmin is not None:
             dx = xmin - x0
         if x is not None:
@@ -130,7 +130,7 @@ class Solid:
             dz = zmax - z1
         return self.move(dx, dy, dz)
 
-    def align_to(self, other, faces="", dx=0, dy=0, dz=0):
+    def align_to(self, other, faces="", dx=0.0, dy=0.0, dz=0.0):
         """Align this solid to another solid using bounding-box face selectors.
 
         Args:
@@ -178,7 +178,7 @@ class Solid:
     def is_empty(self):
         return self.manifold.is_empty()
 
-    def mirror(self, x=0, y=0, z=0):
+    def mirror(self, x=0.0, y=0.0, z=0.0):
         return Solid(self.manifold.mirror((x, y, z)))
 
     def num_edge(self):
@@ -205,17 +205,17 @@ class Solid:
     def refine(self, n=2):
         return Solid(self.manifold.refine(n))
 
-    def rotate(self, x=0, y=0, z=0):
+    def rotate(self, x=0.0, y=0.0, z=0.0):
         return Solid(self.manifold.rotate((x, y, z)))
 
     def rotate_axis(self, axis, degree):
         axis = axis.upper()
         _axis_index(axis, ("X", "Y", "Z"))
-        kwargs = {"x": 0, "y": 0, "z": 0}
+        kwargs = {"x": 0.0, "y": 0.0, "z": 0.0}
         kwargs[axis.lower()] = degree
         return self.rotate(**kwargs)
 
-    def scale(self, x=1, y=1, z=1):
+    def scale(self, x=1.0, y=1.0, z=1.0):
         return Solid(self.manifold.scale((x, y, z)))
 
     def set_properties(self, *args, **kwargs):
@@ -225,7 +225,7 @@ class Solid:
         inter, diff = self.manifold.split(cutter)
         return Solid(inter), Solid(diff)
 
-    def split_by_plane(self, x=0, y=0, z=0, offset=0):
+    def split_by_plane(self, x=0.0, y=0.0, z=0.0, offset=0.0):
         top, bottom = self.manifold.split_by_plane((x, y, z), offset)
         return Solid(top), Solid(bottom)
 
@@ -238,10 +238,10 @@ class Solid:
     def transform(self, matrix):
         return Solid(self.manifold.transform(matrix))
 
-    def move(self, x=0, y=0, z=0):
+    def move(self, x=0.0, y=0.0, z=0.0):
         return Solid(self.manifold.translate((x, y, z)))
 
-    def trim_by_plane(self, x=0, y=0, z=0, offset=0):
+    def trim_by_plane(self, x=0.0, y=0.0, z=0.0, offset=0.0):
         return Solid(self.manifold.trim_by_plane((x, y, z), offset))
 
     def warp(self, xyz_map_fn):
@@ -345,7 +345,7 @@ class Shape:
 
     def align(self, xmin=None, x=None, xmax=None, ymin=None, y=None, ymax=None):
         x0, y0, x1, y1 = self.bounds()
-        dx, dy = 0, 0
+        dx, dy = 0.0, 0.0
         if xmin is not None:
             dx = xmin - x0
         if x is not None:
@@ -360,7 +360,7 @@ class Shape:
             dy = ymax - y1
         return self.move(dx, dy)
 
-    def align_to(self, other, faces="", dx=0, dy=0):
+    def align_to(self, other, faces="", dx=0.0, dy=0.0):
         """Align this 2D shape to another shape using bounding-box selectors.
 
         Args:
@@ -388,7 +388,7 @@ class Shape:
     def decompose(self):
         return [Shape(p) for p in self.cross_section.decompose()]
 
-    def extrude(self, height, fn=0, twist=0, scale_top=(1, 1), center=False):
+    def extrude(self, height, fn=0, twist=0.0, scale_top=(1.0, 1.0), center=False):
         s = Solid(
             self.cross_section.extrude(
                 height,
@@ -465,7 +465,7 @@ class Shape:
     def is_empty(self):
         return self.cross_section.is_empty()
 
-    def mirror(self, x=0, y=0):
+    def mirror(self, x=0.0, y=0.0):
         return Shape(self.cross_section.mirror((x, y)))
 
     def num_contour(self):
@@ -474,7 +474,7 @@ class Shape:
     def num_vert(self):
         return self.cross_section.num_vert()
 
-    def offset(self, delta, join_type="miter", miter_limit=2, circular_segments=0):
+    def offset(self, delta, join_type="miter", miter_limit=2.0, circular_segments=0):
         if join_type == "round":
             join_type = manifold3d.JoinType.Round
         elif join_type == "miter":
@@ -487,7 +487,7 @@ class Shape:
             self.cross_section.offset(delta, join_type, miter_limit, circular_segments)
         )
 
-    def revolve(self, z=360, fn=0):
+    def revolve(self, z=360.0, fn=0):
         return Solid(
             self.cross_section.revolve(
                 circular_segments=fn,
@@ -503,7 +503,7 @@ class Shape:
             raise ValueError("2D shapes can only rotate around the Z axis")
         return self.rotate(degree)
 
-    def scale(self, x=1, y=1):
+    def scale(self, x=1.0, y=1.0):
         return Shape(self.cross_section.scale((x, y)))
 
     def simplify(self, eps):
@@ -515,7 +515,7 @@ class Shape:
     def transform(self, matrix):
         return Shape(self.cross_section.transform(matrix))
 
-    def move(self, x=0, y=0):
+    def move(self, x=0.0, y=0.0):
         return Shape(self.cross_section.translate((x, y)))
 
     def warp(self, xy_map_func):
@@ -559,45 +559,45 @@ def hull2d_points(points):
     return Shape(CrossSection.hull_points(points))
 
 
-def cube(x=1, y=1, z=1, center=False):
+def cube(x=1.0, y=1.0, z=1.0, center=False):
     return Solid(Manifold.cube((x, y, z), center=center))
 
 
-def cylinder(h=1, d=1, r=None, center=False, fn=0, outer=False):
+def cylinder(h=1.0, d=1.0, r=None, center=False, fn=0, outer=False):
     r = r or d / 2
     fn = fn or get_circular_segments(r)
-    s = 1 / np.cos(np.pi / fn) if outer else 1
-    a = 180 / fn if outer else 0
+    s = 1.0 / np.cos(np.pi / fn) if outer else 1.0
+    a = 180.0 / fn if outer else 0.0
     return Solid(
         Manifold.cylinder(h, r * s, r * s, circular_segments=fn, center=center)
     ).rotate(z=a)
 
 
-def conic(h=1, d1=1, d2=1, r1=None, r2=None, center=False, fn=0, outer=False):
+def conic(h=1.0, d1=1.0, d2=1.0, r1=None, r2=None, center=False, fn=0, outer=False):
     r1 = r1 or d1 / 2
     r2 = r2 or d2 / 2
     fn = fn or get_circular_segments(max(r1, r2))
-    s = 1 / np.cos(np.pi / fn) if outer else 1
-    a = 180 / fn if outer else 0
+    s = 1.0 / np.cos(np.pi / fn) if outer else 1.0
+    a = 180.0 / fn if outer else 0.0
     return Solid(
         Manifold.cylinder(h, r1 * s, r2 * s, circular_segments=fn, center=center)
     ).rotate(z=a)
 
 
-def sphere(d=1, r=None, fn=0):
+def sphere(d=1.0, r=None, fn=0):
     r = r or d / 2
     return Solid(Manifold.sphere(r, fn))
 
 
-def circle(d=1, r=None, fn=0, outer=False):
+def circle(d=1.0, r=None, fn=0, outer=False):
     r = r or d / 2
     fn = fn or get_circular_segments(r)
-    s = 1 / np.cos(np.pi / fn) if outer else 1
-    a = 180 / fn if outer else 0
+    s = 1.0 / np.cos(np.pi / fn) if outer else 1.0
+    a = 180.0 / fn if outer else 0.0
     return Shape(CrossSection.circle(r * s, fn).rotate(a))
 
 
-def square(x=1, y=1, center=False):
+def square(x=1.0, y=1.0, center=False):
     return Shape(CrossSection.square((x, y), center=center))
 
 
@@ -615,21 +615,21 @@ def polygon(points, fill_rule="even_odd"):
     return Shape(CrossSection([points], fillrule=fill_rule))
 
 
-def cross_section(solid, z=0):
+def cross_section(solid, z=0.0):
     return Shape(solid.manifold.slice(z))
 
 
-def text(t, size=10, font="Helvetica", fn=8):
+def text(t, size=10.0, font="Helvetica", fn=8):
     polys = svg2polygons(text2svg(t, size=size, font=font), fn=fn)
     return Shape(CrossSection(polys, fillrule=manifold3d.FillRule.EvenOdd)).mirror(y=1)
 
 
 def threads(
-    d=8,
-    h=8,
-    pitch=1,
+    d=8.0,
+    h=8.0,
+    pitch=1.0,
     depth_ratio=0.6,
-    trap_scale=1,
+    trap_scale=1.0,
     starts=1,
     fn=0,
     pitch_fn=8,
