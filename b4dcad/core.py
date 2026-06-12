@@ -563,13 +563,14 @@ def cube(x=1.0, y=1.0, z=1.0, center=False):
     return Solid(Manifold.cube((x, y, z), center=center))
 
 
-def cylinder(h=1.0, d=1.0, r=None, center=False, fn=0, outer=False):
+def cylinder(h=1.0, d=1.0, r=None, r2=None, center=False, fn=0, outer=False):
     r = r or d / 2
-    fn = fn or get_circular_segments(r)
+    r2 = r if r2 is None else r2
+    fn = fn or get_circular_segments(max(r, r2))
     s = 1.0 / np.cos(np.pi / fn) if outer else 1.0
     a = 180.0 / fn if outer else 0.0
     return Solid(
-        Manifold.cylinder(h, r * s, r * s, circular_segments=fn, center=center)
+        Manifold.cylinder(h, r * s, r2 * s, circular_segments=fn, center=center)
     ).rotate(z=a)
 
 
