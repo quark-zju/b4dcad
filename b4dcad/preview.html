@@ -154,7 +154,7 @@
     }
 
     function axisLengthForModel() {
-      return Math.max(modelSize * 12, 120);
+      return Math.max(modelSize * 12, modelExtentFromOrigin * 1.2, 120);
     }
 
     function drawAxes(length) {
@@ -170,6 +170,8 @@
     let currentGeometry = null;
     let activeName = null;
     let modelSize = 1;
+    let modelCenter = new THREE.Vector3(0, 0, 0);
+    let modelExtentFromOrigin = 1;
     let viewMode = "solid";
 
     function materialForMode() {
@@ -219,15 +221,20 @@
 
     function updateCameraClipping() {
       camera.near = Math.max(modelSize / 1000, 0.01);
-      camera.far = Math.max(modelSize * 100, axisLengthForModel() * 2, 100);
+      camera.far = Math.max(
+        modelSize * 100,
+        axisLengthForModel() * 2,
+        modelCenter.length() + modelSize * 10,
+        100,
+      );
       camera.updateProjectionMatrix();
     }
 
     function resetView() {
       const distance = Math.max(modelSize * 1.45, 10);
-      camera.position.set(distance, -distance, distance);
+      camera.position.copy(modelCenter).add(new THREE.Vector3(distance, -distance, distance));
       camera.up.set(0, 0, 1);
-      controls.target.set(0, 0, 0);
+      controls.target.copy(modelCenter);
       updateCameraClipping();
       controls.update();
     }
@@ -246,7 +253,6 @@
       loader.load(url, (geometry) => {
         geometry = mergeVertices(geometry, 1e-5);
         geometry.computeVertexNormals();
-        geometry.center();
         removeObject(mesh, false);
         removeObject(edgeLines);
         if (currentGeometry) currentGeometry.dispose();
@@ -255,6 +261,12 @@
 
         const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
         modelSize = box.getSize(new THREE.Vector3()).length();
+        modelCenter = box.getCenter(new THREE.Vector3());
+        modelExtentFromOrigin = Math.max(
+          Math.abs(box.min.x), Math.abs(box.max.x),
+          Math.abs(box.min.y), Math.abs(box.max.y),
+          Math.abs(box.min.z), Math.abs(box.max.z),
+        );
         drawAxes(axisLengthForModel());
         if (resetCamera) {
           resetView();
