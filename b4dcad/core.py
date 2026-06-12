@@ -602,7 +602,9 @@ def square(x=1.0, y=1.0, center=False):
     return Shape(CrossSection.square((x, y), center=center))
 
 
-def polygon(points, fill_rule="even_odd"):
+def polygon(points, fill_rule="even_odd", relative=False):
+    if relative:
+        points = np.cumsum(np.asarray(points), axis=0)
     if fill_rule == "even_odd":
         fill_rule = manifold3d.FillRule.EvenOdd
     elif fill_rule == "negative":

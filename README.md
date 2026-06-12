@@ -107,7 +107,7 @@ cylinder(h=10, r=3, center=True)
 sphere(r=5)
 circle(r=5)
 square(x, y, center=True)
-polygon(points)
+polygon(points, relative=False)
 ```
 
 变换和对齐：
