@@ -93,6 +93,10 @@ class Solid:
     def bounding_box(self):
         return self.manifold.bounding_box()
 
+    def size(self):
+        x0, y0, z0, x1, y1, z1 = self.bounding_box()
+        return x1 - x0, y1 - y0, z1 - z0
+
     def calculate_curvature(self, gaussian_idx: int, mean_idx: int):
         return Solid(self.manifold.calculate_curvature(gaussian_idx, mean_idx))
 
