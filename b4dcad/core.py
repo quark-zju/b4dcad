@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import manifold3d
 import numpy as np
 from manifold3d import CrossSection, Manifold, Mesh
@@ -11,6 +13,12 @@ stl_dtype = np.dtype(
     [("norm", np.float32, 3), ("vert", np.float32, 9), ("pad", np.int8, 2)]
 )
 CQ_TESSELLATION_TOLERANCE = 0.05
+
+
+class Size(NamedTuple):
+    x: float
+    y: float
+    z: float
 
 
 def _split_faces(faces):
@@ -95,7 +103,7 @@ class Solid:
 
     def size(self):
         x0, y0, z0, x1, y1, z1 = self.bounding_box()
-        return x1 - x0, y1 - y0, z1 - z0
+        return Size(x1 - x0, y1 - y0, z1 - z0)
 
     def calculate_curvature(self, gaussian_idx: int, mean_idx: int):
         return Solid(self.manifold.calculate_curvature(gaussian_idx, mean_idx))
