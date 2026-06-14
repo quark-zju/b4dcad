@@ -575,6 +575,9 @@ def cube(x=1.0, y=1.0, z=1.0, center=False):
     return Solid(Manifold.cube((x, y, z), center=center))
 
 
+box = cube
+
+
 def cylinder(h=1.0, d=1.0, r=None, r2=None, center=False, fn=0, outer=False):
     r = r or d / 2
     r2 = r if r2 is None else r2
