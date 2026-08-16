@@ -40,4 +40,4 @@ b4dcad-preview = "b4dcad.cli:preview_command"
 include = ["b4dcad*"]
 
 [tool.setuptools.package-data]
-b4dcad = ["preview.html"]
+b4dcad = ["*.pyi", "preview.html", "py.typed"]
