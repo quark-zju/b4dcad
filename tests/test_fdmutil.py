@@ -163,6 +163,15 @@ class SolidFdmApiTest(unittest.TestCase):
         self.assertIsInstance(result, Solid)
         self.assertAlmostEqual(result.manifold.volume(), 1.0)
 
+    def test_horizontal_fix_is_available_on_solid(self):
+        stem = cube(2, 2, 5).move(-1, -1, 0)
+        roof = cube(6, 2, 1).move(-3, -1, 5)
+
+        result = (stem + roof).fix_horizontal_overhangs(angle=45, mode="add")
+
+        self.assertIsInstance(result, Solid)
+        self.assertAlmostEqual(result.manifold.volume(), 40.0)
+
 
 if __name__ == "__main__":
     unittest.main()

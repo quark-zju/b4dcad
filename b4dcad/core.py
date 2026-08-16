@@ -5,6 +5,7 @@ import numpy as np
 from manifold3d import CrossSection, Manifold, Mesh
 
 from .fdmutil import detect_overhangs as _detect_overhangs
+from .fdmutil import fix_horizontal_overhangs as _fix_horizontal_overhangs
 from .fdmutil import trim_overhangs as _trim_overhangs
 from .loft import polygon_nearest_alignment
 from .normals import triangle_normals
@@ -182,6 +183,17 @@ class Solid:
     def genus(self):
         return self.manifold.get_genus()
 
+    def fix_horizontal_overhangs(self, angle=45.0, mode="cut", directions="auto"):
+        """Cut or add wedges on simple horizontal overhangs."""
+        return Solid(
+            _fix_horizontal_overhangs(
+                self.manifold,
+                angle=angle,
+                mode=mode,
+                directions=directions,
+            )
+        )
+
     def get_surface_area(self):
         return self.manifold.get_surface_area()
 
@@ -262,8 +274,8 @@ class Solid:
     def trim_by_plane(self, x=0.0, y=0.0, z=0.0, offset=0.0):
         return Solid(self.manifold.trim_by_plane((x, y, z), offset))
 
-    def trim_overhangs(self, angle=45.0, layer_height=0.2):
-        """Remove material that exceeds a positive-Z FDM overhang angle."""
+    def trim_overhangs(self, angle=45.0, layer_height=None):
+        """Remove simple horizontal overhangs; layer_height is ignored."""
         return Solid(_trim_overhangs(self.manifold, angle, layer_height))
 
     def warp(self, xyz_map_fn):

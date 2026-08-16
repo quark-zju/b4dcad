@@ -146,10 +146,19 @@ FDM 悬垂分析和削料：
 report = part.detect_overhangs(angle=45)
 print(report.area, report.triangle_indices)
 
-printable = part.trim_overhangs(angle=45, layer_height=0.2)
+trimmed = part.fix_horizontal_overhangs(angle=45, mode="cut")
+supported = part.fix_horizontal_overhangs(
+    angle=45,
+    mode="add",
+    directions="<X >X",
+)
 ```
 
 角度从竖直方向量起：竖直墙是 0°，水平底面是 90°。检测仅依据局部
-面法线，不识别桥接或下方支撑。削料沿 `+Z` 方向逐层进行，结果是按给定
-层高形成的阶梯近似；复杂桥接和其他构建方向暂不特殊处理。
+面法线，不识别桥接或下方支撑。修形只处理沿 `+Z` 打印、轴对齐矩形且
+连接方向明确的水平悬垂区域；复杂区域保持不变。`cut` 直接削除上方楔块，
+`add` 向下添加楔块，均不检查结果是否断开或连接侧下方高度是否足够。
 
+`directions` 默认为 `"auto"`；也可以用 `"<X >X"` 这样的选择器限制连接
+方向。旧的 `part.trim_overhangs(angle=45)` 仍可作为 `mode="cut"` 的快捷方式，
+其中 `layer_height` 参数仅为兼容旧代码而保留，不再参与计算。
