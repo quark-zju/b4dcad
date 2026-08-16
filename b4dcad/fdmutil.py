@@ -25,6 +25,14 @@ class OverhangResult:
         return self.triangle_indices.size == 0
 
 
+@dataclass(frozen=True)
+class _HorizontalRegion:
+    bounds: tuple[float, float, float, float]
+    bottom: float
+    top: float
+    anchors: tuple[str, ...]
+
+
 def _unit_vector(vector: Sequence[float]):
     vector = np.asarray(vector, dtype=np.float64)
     if vector.shape != (3,):
@@ -179,6 +187,26 @@ def _wedge_polygon(anchor, free, z_bottom, z_top, tangent):
     return polygon if signed_area > 0 else polygon[::-1]
 
 
+def _support_polygon(anchor, free, z, tangent):
+    depth = abs(free - anchor) / tangent
+    polygon = np.array([(anchor, z), (free, z), (anchor, z - depth)])
+    signed_area = np.sum(
+        polygon[:, 0] * np.roll(polygon[:, 1], -1)
+        - polygon[:, 1] * np.roll(polygon[:, 0], -1)
+    )
+    return polygon if signed_area > 0 else polygon[::-1]
+
+
+def _extrude_axis_profile(polygon, bounds, axis):
+    x_min, y_min, x_max, y_max = bounds
+    if axis == "X":
+        local = CrossSection([polygon]).extrude(y_max - y_min)
+        return local.transform(((1, 0, 0, 0), (0, 0, 1, y_min), (0, 1, 0, 0)))
+
+    local = CrossSection([polygon]).extrude(x_max - x_min)
+    return local.transform(((0, 0, 1, x_min), (1, 0, 0, 0), (0, 1, 0, 0)))
+
+
 def _wedge(bounds, z_bottom, z_top, anchor, angle):
     x_min, y_min, x_max, y_max = bounds
     tangent = np.tan(np.deg2rad(angle))
@@ -188,13 +216,11 @@ def _wedge(bounds, z_bottom, z_top, anchor, angle):
     if anchor in ("<X", ">X"):
         anchor_x, free_x = (x_min, x_max) if anchor == "<X" else (x_max, x_min)
         polygon = _wedge_polygon(anchor_x, free_x, z_bottom, z_top, tangent)
-        local = CrossSection([polygon]).extrude(y_max - y_min)
-        return local.transform(((1, 0, 0, 0), (0, 0, 1, y_min), (0, 1, 0, 0)))
+        return _extrude_axis_profile(polygon, bounds, "X")
 
     anchor_y, free_y = (y_min, y_max) if anchor == "<Y" else (y_max, y_min)
     polygon = _wedge_polygon(anchor_y, free_y, z_bottom, z_top, tangent)
-    local = CrossSection([polygon]).extrude(x_max - x_min)
-    return local.transform(((0, 0, 1, x_min), (1, 0, 0, 0), (0, 1, 0, 0)))
+    return _extrude_axis_profile(polygon, bounds, "Y")
 
 
 def _component_cutter(bounds, z_bottom, z_top, anchors, angle):
@@ -204,18 +230,47 @@ def _component_cutter(bounds, z_bottom, z_top, anchors, angle):
     return Manifold.batch_boolean(wedges, OpType.Intersect)
 
 
-def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
-    """Trim simple horizontal overhangs with axis-aligned sloped wedges.
+def _support_wedge(bounds, z, anchor, angle):
+    x_min, y_min, x_max, y_max = bounds
+    tangent = np.tan(np.deg2rad(angle))
+    if anchor in ("<X", ">X"):
+        anchor_x, free_x = (x_min, x_max) if anchor == "<X" else (x_max, x_min)
+        polygon = _support_polygon(anchor_x, free_x, z, tangent)
+        return _extrude_axis_profile(polygon, bounds, "X")
 
-    The build direction is positive Z. Only rectangular downward-facing
-    regions attached along one axis are handled; other regions are unchanged.
-    ``layer_height`` is accepted for compatibility and is intentionally ignored.
-    """
-    if not np.isfinite(angle) or not 0 <= angle <= 90:
-        raise ValueError("angle must be between 0 and 90 degrees")
-    if manifold.is_empty() or angle == 90:
-        return manifold
+    anchor_y, free_y = (y_min, y_max) if anchor == "<Y" else (y_max, y_min)
+    polygon = _support_polygon(anchor_y, free_y, z, tangent)
+    return _extrude_axis_profile(polygon, bounds, "Y")
 
+
+def _component_support(bounds, z, anchors, angle):
+    x_min, y_min, x_max, y_max = bounds
+    if len(anchors) == 1:
+        return _support_wedge(bounds, z, anchors[0], angle)
+
+    supports = []
+    if anchors[0][1] == "X":
+        middle = (x_min + x_max) / 2
+        for anchor in anchors:
+            half_bounds = (
+                (x_min, y_min, middle, y_max)
+                if anchor == "<X"
+                else (middle, y_min, x_max, y_max)
+            )
+            supports.append(_support_wedge(half_bounds, z, anchor, angle))
+    else:
+        middle = (y_min + y_max) / 2
+        for anchor in anchors:
+            half_bounds = (
+                (x_min, y_min, x_max, middle)
+                if anchor == "<Y"
+                else (x_min, middle, x_max, y_max)
+            )
+            supports.append(_support_wedge(half_bounds, z, anchor, angle))
+    return Manifold.batch_boolean(supports, OpType.Add)
+
+
+def _horizontal_regions(manifold):
     x_min, y_min, z_min, x_max, y_max, z_max = manifold.bounding_box()
     scale = max(x_max - x_min, y_max - y_min, z_max - z_min, 1.0)
     tolerance = scale * 1e-6
@@ -236,7 +291,7 @@ def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
     )
 
     edges = _edge_map(triangles)
-    cutters = []
+    regions = []
     for component in _horizontal_components(triangles, horizontal, edges):
         indices = np.fromiter(component, dtype=np.int64)
         component_points = points[indices]
@@ -272,9 +327,9 @@ def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
         x_anchors = anchors & {"<X", ">X"}
         y_anchors = anchors & {"<Y", ">Y"}
         if x_anchors and not y_anchors:
-            selected_anchors = sorted(x_anchors)
+            selected_anchors = tuple(sorted(x_anchors))
         elif y_anchors and not x_anchors:
-            selected_anchors = sorted(y_anchors)
+            selected_anchors = tuple(sorted(y_anchors))
         else:
             continue
 
@@ -283,8 +338,66 @@ def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
         )
         if top is None or top - z <= tolerance:
             continue
-        cutters.append(_component_cutter(bounds, z, top, selected_anchors, angle))
+        regions.append(_HorizontalRegion(bounds, z, top, selected_anchors))
+    return regions
 
-    if not cutters:
+
+def _direction_filter(directions):
+    if directions == "auto":
+        return None
+    if isinstance(directions, str):
+        directions = directions.split()
+    directions = set(directions)
+    allowed = {"<X", ">X", "<Y", ">Y"}
+    if not directions or not directions <= allowed:
+        raise ValueError("directions must be 'auto' or contain <X, >X, <Y, or >Y")
+    return directions
+
+
+def fix_horizontal_overhangs(
+    manifold: Manifold,
+    angle: float = 45.0,
+    mode: str = "cut",
+    directions="auto",
+):
+    """Cut or add wedges on simple axis-aligned horizontal overhangs."""
+    if not np.isfinite(angle) or not 0 <= angle <= 90:
+        raise ValueError("angle must be between 0 and 90 degrees")
+    if mode not in ("cut", "add"):
+        raise ValueError("mode must be 'cut' or 'add'")
+    if mode == "add" and angle == 0:
+        raise ValueError("angle must be greater than zero in add mode")
+    direction_filter = _direction_filter(directions)
+    if manifold.is_empty() or angle == 90:
         return manifold
-    return manifold - Manifold.batch_boolean(cutters, OpType.Add)
+
+    modifiers = []
+    for region in _horizontal_regions(manifold):
+        anchors = region.anchors
+        if direction_filter is not None:
+            anchors = tuple(anchor for anchor in anchors if anchor in direction_filter)
+        if not anchors:
+            continue
+        if mode == "cut":
+            modifiers.append(
+                _component_cutter(
+                    region.bounds, region.bottom, region.top, anchors, angle
+                )
+            )
+        else:
+            modifiers.append(
+                _component_support(region.bounds, region.bottom, anchors, angle)
+            )
+
+    if not modifiers:
+        return manifold
+    modifier = Manifold.batch_boolean(modifiers, OpType.Add)
+    return manifold - modifier if mode == "cut" else manifold + modifier
+
+
+def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
+    """Trim simple horizontal overhangs with axis-aligned sloped wedges.
+
+    ``layer_height`` is accepted for compatibility and is intentionally ignored.
+    """
+    return fix_horizontal_overhangs(manifold, angle, mode="cut")

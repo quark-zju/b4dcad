@@ -4,7 +4,11 @@ import numpy as np
 from manifold3d import Manifold
 
 from b4dcad import OverhangResult, Solid, cube
-from b4dcad.fdmutil import detect_overhangs, trim_overhangs
+from b4dcad.fdmutil import (
+    detect_overhangs,
+    fix_horizontal_overhangs,
+    trim_overhangs,
+)
 
 
 class DetectOverhangsTest(unittest.TestCase):
@@ -96,6 +100,54 @@ class TrimOverhangsTest(unittest.TestCase):
         cube = Manifold.cube()
 
         self.assertIs(trim_overhangs(cube, layer_height=0), cube)
+
+
+class AddOverhangSupportsTest(unittest.TestCase):
+    def test_single_anchor_adds_a_downward_wedge(self):
+        stem = Manifold.cube((2, 2, 5)).translate((-1, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        t_shape = stem + roof
+
+        result = fix_horizontal_overhangs(t_shape, angle=45, mode="add")
+
+        self.assertAlmostEqual(result.volume(), 40.0, places=5)
+
+    def test_two_anchors_add_two_half_span_wedges(self):
+        left = Manifold.cube((1, 2, 5)).translate((-3, -1, 0))
+        right = Manifold.cube((1, 2, 5)).translate((2, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        bridge = left + right + roof
+
+        result = fix_horizontal_overhangs(bridge, angle=45, mode="add")
+
+        self.assertAlmostEqual(result.volume(), 40.0, places=5)
+
+    def test_stricter_angle_adds_more_material(self):
+        stem = Manifold.cube((2, 2, 5)).translate((-1, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        t_shape = stem + roof
+
+        strict = fix_horizontal_overhangs(t_shape, angle=30, mode="add")
+        permissive = fix_horizontal_overhangs(t_shape, angle=60, mode="add")
+
+        self.assertGreater(strict.volume(), permissive.volume())
+
+    def test_direction_filter_limits_modified_regions(self):
+        stem = Manifold.cube((2, 2, 5)).translate((-1, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        t_shape = stem + roof
+
+        result = fix_horizontal_overhangs(
+            t_shape, angle=45, mode="add", directions="<X"
+        )
+
+        self.assertAlmostEqual(result.volume(), 36.0, places=5)
+
+    def test_invalid_mode_and_zero_add_angle_are_rejected(self):
+        with self.assertRaises(ValueError):
+            fix_horizontal_overhangs(Manifold.cube(), mode="replace")
+        with self.assertRaises(ValueError):
+            fix_horizontal_overhangs(Manifold.cube(), angle=0, mode="add")
 
 
 class SolidFdmApiTest(unittest.TestCase):
