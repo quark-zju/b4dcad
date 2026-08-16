@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 from manifold3d import Manifold
 
+from b4dcad import OverhangResult, Solid, cube
 from b4dcad.fdmutil import detect_overhangs, trim_overhangs
 
 
@@ -74,6 +75,20 @@ class TrimOverhangsTest(unittest.TestCase):
     def test_invalid_layer_height_is_rejected(self):
         with self.assertRaises(ValueError):
             trim_overhangs(Manifold.cube(), layer_height=0)
+
+
+class SolidFdmApiTest(unittest.TestCase):
+    def test_detection_is_available_on_solid(self):
+        result = cube(2, 3, 4).detect_overhangs(angle=45)
+
+        self.assertIsInstance(result, OverhangResult)
+        self.assertAlmostEqual(result.area, 6.0)
+
+    def test_trimming_returns_a_solid(self):
+        result = cube().trim_overhangs(angle=45, layer_height=0.5)
+
+        self.assertIsInstance(result, Solid)
+        self.assertAlmostEqual(result.manifold.volume(), 1.0)
 
 
 if __name__ == "__main__":

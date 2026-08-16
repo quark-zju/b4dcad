@@ -140,4 +140,16 @@ solid = profile.extrude(4)
 bolt = threads(d=8, h=16, pitch=1)
 ```
 
+FDM 悬垂分析和削料：
+
+```py
+report = part.detect_overhangs(angle=45)
+print(report.area, report.triangle_indices)
+
+printable = part.trim_overhangs(angle=45, layer_height=0.2)
+```
+
+角度从竖直方向量起：竖直墙是 0°，水平底面是 90°。检测仅依据局部
+面法线，不识别桥接或下方支撑。削料沿 `+Z` 方向逐层进行，结果是按给定
+层高形成的阶梯近似；复杂桥接和其他构建方向暂不特殊处理。
 

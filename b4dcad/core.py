@@ -4,6 +4,8 @@ import manifold3d
 import numpy as np
 from manifold3d import CrossSection, Manifold, Mesh
 
+from .fdmutil import detect_overhangs as _detect_overhangs
+from .fdmutil import trim_overhangs as _trim_overhangs
 from .loft import polygon_nearest_alignment
 from .normals import triangle_normals
 from .svg import svg2polygons
@@ -173,6 +175,10 @@ class Solid:
     def decompose(self):
         return [Solid(m) for m in self.manifold.decompose()]
 
+    def detect_overhangs(self, angle=45.0, build_direction=(0.0, 0.0, 1.0)):
+        """Return locally overhanging faces for the requested FDM angle."""
+        return _detect_overhangs(self.manifold, angle, build_direction)
+
     def genus(self):
         return self.manifold.get_genus()
 
@@ -255,6 +261,10 @@ class Solid:
 
     def trim_by_plane(self, x=0.0, y=0.0, z=0.0, offset=0.0):
         return Solid(self.manifold.trim_by_plane((x, y, z), offset))
+
+    def trim_overhangs(self, angle=45.0, layer_height=0.2):
+        """Remove material that exceeds a positive-Z FDM overhang angle."""
+        return Solid(_trim_overhangs(self.manifold, angle, layer_height))
 
     def warp(self, xyz_map_fn):
         return Solid(self.manifold.warp(xyz_map_fn))

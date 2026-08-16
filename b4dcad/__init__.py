@@ -1,5 +1,6 @@
 """Public modeling API for b4dcad."""
 
+from .fdmutil import OverhangResult
 from .core import (
     CQ_TESSELLATION_TOLERANCE,
     Shape,
@@ -31,6 +32,7 @@ from .core import (
 
 __all__ = [
     "CQ_TESSELLATION_TOLERANCE",
+    "OverhangResult",
     "Shape",
     "Size",
     "Solid",
