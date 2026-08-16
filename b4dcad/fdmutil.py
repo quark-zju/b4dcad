@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
-from manifold3d import Manifold
+from manifold3d import Manifold, OpType
 
 
 @dataclass(frozen=True)
@@ -73,3 +73,57 @@ def detect_overhangs(
         angles=angles[selected],
         areas=lengths[selected] / 2,
     )
+
+
+def trim_overhangs(
+    manifold: Manifold,
+    angle: float = 45.0,
+    layer_height: float = 0.2,
+):
+    """Remove material that cannot be reached from the layer below.
+
+    The build direction is positive Z. ``angle`` is measured from vertical,
+    and each layer may grow horizontally by ``layer_height * tan(angle)``.
+    This produces a layer-wise approximation of the requested slope. It does
+    not attempt special handling for bridges or disconnected floating parts.
+    """
+    if not np.isfinite(angle) or not 0 <= angle <= 90:
+        raise ValueError("angle must be between 0 and 90 degrees")
+    if not np.isfinite(layer_height) or layer_height <= 0:
+        raise ValueError("layer_height must be finite and greater than zero")
+    if manifold.is_empty() or angle == 90:
+        return manifold
+
+    _, _, z_min, _, _, z_max = manifold.bounding_box()
+    height = z_max - z_min
+    if height <= np.finfo(np.float64).eps:
+        return manifold
+
+    layer_count = int(np.ceil(height / layer_height))
+    if layer_count > 10_000:
+        raise ValueError("layer_height would require more than 10000 layers")
+
+    step = height / layer_count
+    growth = step * np.tan(np.deg2rad(angle))
+    previous = None
+    layers = []
+
+    for layer in range(layer_count):
+        z_bottom = z_min + layer * step
+        section = manifold.slice(z_bottom + step / 2)
+        if previous is None:
+            printable = section
+        elif previous.is_empty():
+            printable = previous
+        else:
+            printable = section ^ previous.offset(growth)
+
+        if not printable.is_empty():
+            layers.append(printable.extrude(step).translate((0, 0, z_bottom)))
+        previous = printable
+
+    if not layers:
+        return Manifold()
+
+    stepped_envelope = Manifold.batch_boolean(layers, OpType.Add)
+    return stepped_envelope ^ manifold
