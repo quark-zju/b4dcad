@@ -100,7 +100,7 @@ class TrimOverhangsTest(unittest.TestCase):
 
         self.assertAlmostEqual(result.volume(), 26.0, places=5)
 
-    def test_concave_region_is_left_unchanged(self):
+    def test_concave_region_is_processed(self):
         profile = CrossSection([[(0, 0), (4, 0), (4, 1), (1, 1), (1, 4), (0, 4)]])
         roof = profile.extrude(1).translate((0, 0, 5))
         wall = Manifold.cube((0.5, 4, 5))
@@ -108,7 +108,8 @@ class TrimOverhangsTest(unittest.TestCase):
 
         result = trim_overhangs(part, angle=45)
 
-        self.assertIs(result, part)
+        self.assertIsNot(result, part)
+        self.assertLess(result.volume(), part.volume())
 
     def test_region_connected_on_every_edge_is_left_unchanged(self):
         outer = Manifold.cube((4, 4, 4))

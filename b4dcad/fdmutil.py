@@ -157,14 +157,6 @@ def _ordered_boundary(boundary):
     return loop if len(loop) == len(adjacency) else None
 
 
-def _is_convex(polygon, tolerance):
-    edges = np.roll(polygon, -1, axis=0) - polygon
-    following = np.roll(edges, -1, axis=0)
-    turns = edges[:, 0] * following[:, 1] - edges[:, 1] * following[:, 0]
-    turns = turns[np.abs(turns) > tolerance]
-    return len(turns) > 0 and (np.all(turns > 0) or np.all(turns < 0))
-
-
 def _component_top(manifold, vertices, triangles, component, z, tolerance, z_max):
     top_heights = []
     endpoint = z_max + max(1.0, z_max - z)
@@ -210,7 +202,7 @@ def _horizontal_regions(manifold):
     for component in _horizontal_components(triangles, horizontal, edges):
         boundary = _boundary_edges(component, triangles, edges)
         loop = _ordered_boundary(boundary)
-        if loop is None or not _is_convex(vertices[loop, :2], tolerance):
+        if loop is None:
             continue
 
         component_triangles = triangles[list(component)]
@@ -342,7 +334,7 @@ def fix_horizontal_overhangs(
     mode: str = "cut",
     directions="auto",
 ):
-    """Cut or add distance-field ramps on simple convex horizontal faces."""
+    """Cut or add distance-field ramps on simple horizontal faces."""
     if not np.isfinite(angle) or not 0 < angle <= 90:
         raise ValueError("angle must be greater than zero and at most 90 degrees")
     if mode not in ("cut", "add"):
@@ -379,7 +371,7 @@ def fix_horizontal_overhangs(
 
 
 def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
-    """Trim simple convex horizontal overhangs with distance-field ramps.
+    """Trim simple horizontal overhangs with distance-field ramps.
 
     ``layer_height`` is accepted for compatibility and is intentionally ignored.
     """
