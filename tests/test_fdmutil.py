@@ -1,7 +1,7 @@
 import unittest
 
 import numpy as np
-from manifold3d import Manifold
+from manifold3d import CrossSection, Manifold
 
 from b4dcad import OverhangResult, Solid, cube
 from b4dcad.fdmutil import (
@@ -82,7 +82,7 @@ class TrimOverhangsTest(unittest.TestCase):
         self.assertAlmostEqual(result.volume(), 26.0, places=5)
         self.assertEqual(len(result.decompose()), 2)
 
-    def test_non_rectangular_region_is_left_unchanged(self):
+    def test_region_with_a_hole_is_left_unchanged(self):
         stem = Manifold.cylinder(5, 1, circular_segments=32)
         roof = Manifold.cylinder(1, 3, circular_segments=32).translate((0, 0, 5))
         mushroom = stem + roof
@@ -90,6 +90,34 @@ class TrimOverhangsTest(unittest.TestCase):
         result = trim_overhangs(mushroom, angle=45)
 
         self.assertIs(result, mushroom)
+
+    def test_rotated_convex_regions_are_trimmed(self):
+        stem = Manifold.cube((2, 2, 5)).translate((-1, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        rotated = (stem + roof).rotate((0, 0, 30))
+
+        result = trim_overhangs(rotated, angle=45)
+
+        self.assertAlmostEqual(result.volume(), 26.0, places=5)
+
+    def test_concave_region_is_left_unchanged(self):
+        profile = CrossSection([[(0, 0), (4, 0), (4, 1), (1, 1), (1, 4), (0, 4)]])
+        roof = profile.extrude(1).translate((0, 0, 5))
+        wall = Manifold.cube((0.5, 4, 5))
+        part = wall + roof
+
+        result = trim_overhangs(part, angle=45)
+
+        self.assertIs(result, part)
+
+    def test_region_connected_on_every_edge_is_left_unchanged(self):
+        outer = Manifold.cube((4, 4, 4))
+        open_pocket = Manifold.cube((2, 2, 2)).translate((1, 1, 0))
+        part = outer - open_pocket
+
+        result = trim_overhangs(part, angle=45)
+
+        self.assertIs(result, part)
 
     def test_angle_90_returns_original(self):
         cube = Manifold.cube()
@@ -143,11 +171,13 @@ class AddOverhangSupportsTest(unittest.TestCase):
 
         self.assertAlmostEqual(result.volume(), 36.0, places=5)
 
-    def test_invalid_mode_and_zero_add_angle_are_rejected(self):
+    def test_invalid_mode_and_zero_angle_are_rejected(self):
         with self.assertRaises(ValueError):
             fix_horizontal_overhangs(Manifold.cube(), mode="replace")
         with self.assertRaises(ValueError):
             fix_horizontal_overhangs(Manifold.cube(), angle=0, mode="add")
+        with self.assertRaises(ValueError):
+            fix_horizontal_overhangs(Manifold.cube(), angle=0, mode="cut")
 
 
 class SolidFdmApiTest(unittest.TestCase):
