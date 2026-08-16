@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
-from manifold3d import Manifold, OpType
+from manifold3d import CrossSection, Manifold, OpType
 
 
 @dataclass(frozen=True)
@@ -75,55 +75,216 @@ def detect_overhangs(
     )
 
 
-def trim_overhangs(
-    manifold: Manifold,
-    angle: float = 45.0,
-    layer_height: float = 0.2,
-):
-    """Remove material that cannot be reached from the layer below.
+def _edge_map(triangles):
+    edges = {}
+    for triangle_index, triangle in enumerate(triangles):
+        for start, end in zip(triangle, np.roll(triangle, -1)):
+            edge = tuple(sorted((int(start), int(end))))
+            edges.setdefault(edge, []).append(triangle_index)
+    return edges
 
-    The build direction is positive Z. ``angle`` is measured from vertical,
-    and each layer may grow horizontally by ``layer_height * tan(angle)``.
-    This produces a layer-wise approximation of the requested slope. It does
-    not attempt special handling for bridges or disconnected floating parts.
+
+def _horizontal_components(triangles, horizontal, edges):
+    remaining = set(np.flatnonzero(horizontal))
+    components = []
+    while remaining:
+        first = remaining.pop()
+        component = {first}
+        pending = [first]
+        while pending:
+            triangle_index = pending.pop()
+            for start, end in zip(
+                triangles[triangle_index], np.roll(triangles[triangle_index], -1)
+            ):
+                edge = tuple(sorted((int(start), int(end))))
+                for neighbor in edges[edge]:
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        component.add(neighbor)
+                        pending.append(neighbor)
+        components.append(component)
+    return components
+
+
+def _boundary_edges(component, triangles, edges):
+    boundary = []
+    for triangle_index in component:
+        triangle = triangles[triangle_index]
+        for start, end in zip(triangle, np.roll(triangle, -1)):
+            edge = tuple(sorted((int(start), int(end))))
+            neighbors = [index for index in edges[edge] if index not in component]
+            if neighbors:
+                boundary.append((edge, neighbors))
+    return boundary
+
+
+def _side_for_edge(points, bounds, tolerance):
+    x_min, y_min, x_max, y_max = bounds
+    if np.all(np.abs(points[:, 0] - x_min) <= tolerance):
+        return "<X"
+    if np.all(np.abs(points[:, 0] - x_max) <= tolerance):
+        return ">X"
+    if np.all(np.abs(points[:, 1] - y_min) <= tolerance):
+        return "<Y"
+    if np.all(np.abs(points[:, 1] - y_max) <= tolerance):
+        return ">Y"
+    return None
+
+
+def _component_top(manifold, vertices, triangles, component, z, tolerance, z_max):
+    top_heights = []
+    endpoint = z_max + max(1.0, z_max - z)
+    for triangle_index in component:
+        point = np.mean(vertices[triangles[triangle_index]], axis=0)
+        origin = (point[0], point[1], z + tolerance)
+        hits = manifold.ray_cast(origin, (point[0], point[1], endpoint))
+        heights = [hit.position[2] for hit in hits if hit.position[2] > z + tolerance]
+        if not heights:
+            return None
+        top_heights.append(min(heights))
+
+    if max(top_heights) - min(top_heights) > tolerance * 10:
+        return None
+    return float(np.mean(top_heights))
+
+
+def _wedge_polygon(anchor, free, z_bottom, z_top, tangent):
+    run = abs(free - anchor)
+    thickness = z_top - z_bottom
+    cap_distance = thickness * tangent
+    direction = np.sign(free - anchor)
+
+    if cap_distance >= run:
+        polygon = np.array(
+            [
+                (anchor, z_bottom),
+                (free, z_bottom),
+                (free, z_bottom + run / tangent),
+            ]
+        )
+    else:
+        polygon = np.array(
+            [
+                (anchor, z_bottom),
+                (free, z_bottom),
+                (free, z_top),
+                (anchor + direction * cap_distance, z_top),
+            ]
+        )
+
+    signed_area = np.sum(
+        polygon[:, 0] * np.roll(polygon[:, 1], -1)
+        - polygon[:, 1] * np.roll(polygon[:, 0], -1)
+    )
+    return polygon if signed_area > 0 else polygon[::-1]
+
+
+def _wedge(bounds, z_bottom, z_top, anchor, angle):
+    x_min, y_min, x_max, y_max = bounds
+    tangent = np.tan(np.deg2rad(angle))
+    if tangent <= np.finfo(np.float64).eps:
+        tangent = np.finfo(np.float64).eps
+
+    if anchor in ("<X", ">X"):
+        anchor_x, free_x = (x_min, x_max) if anchor == "<X" else (x_max, x_min)
+        polygon = _wedge_polygon(anchor_x, free_x, z_bottom, z_top, tangent)
+        local = CrossSection([polygon]).extrude(y_max - y_min)
+        return local.transform(((1, 0, 0, 0), (0, 0, 1, y_min), (0, 1, 0, 0)))
+
+    anchor_y, free_y = (y_min, y_max) if anchor == "<Y" else (y_max, y_min)
+    polygon = _wedge_polygon(anchor_y, free_y, z_bottom, z_top, tangent)
+    local = CrossSection([polygon]).extrude(x_max - x_min)
+    return local.transform(((0, 0, 1, x_min), (1, 0, 0, 0), (0, 1, 0, 0)))
+
+
+def _component_cutter(bounds, z_bottom, z_top, anchors, angle):
+    wedges = [_wedge(bounds, z_bottom, z_top, anchor, angle) for anchor in anchors]
+    if len(wedges) == 1:
+        return wedges[0]
+    return Manifold.batch_boolean(wedges, OpType.Intersect)
+
+
+def trim_overhangs(manifold: Manifold, angle: float = 45.0, layer_height=None):
+    """Trim simple horizontal overhangs with axis-aligned sloped wedges.
+
+    The build direction is positive Z. Only rectangular downward-facing
+    regions attached along one axis are handled; other regions are unchanged.
+    ``layer_height`` is accepted for compatibility and is intentionally ignored.
     """
     if not np.isfinite(angle) or not 0 <= angle <= 90:
         raise ValueError("angle must be between 0 and 90 degrees")
-    if not np.isfinite(layer_height) or layer_height <= 0:
-        raise ValueError("layer_height must be finite and greater than zero")
     if manifold.is_empty() or angle == 90:
         return manifold
 
-    _, _, z_min, _, _, z_max = manifold.bounding_box()
-    height = z_max - z_min
-    if height <= np.finfo(np.float64).eps:
-        return manifold
+    x_min, y_min, z_min, x_max, y_max, z_max = manifold.bounding_box()
+    scale = max(x_max - x_min, y_max - y_min, z_max - z_min, 1.0)
+    tolerance = scale * 1e-6
+    mesh = manifold.to_mesh()
+    vertices = np.asarray(mesh.vert_properties[:, :3], dtype=np.float64)
+    triangles = np.asarray(mesh.tri_verts, dtype=np.int64)
+    points = vertices[triangles]
+    area_vectors = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    lengths = np.linalg.norm(area_vectors, axis=1)
+    normals_z = np.zeros(len(triangles))
+    valid = lengths > np.finfo(np.float64).eps
+    normals_z[valid] = area_vectors[valid, 2] / lengths[valid]
+    horizontal = (
+        valid
+        & (normals_z < -1 + 1e-7)
+        & (np.ptp(points[:, :, 2], axis=1) <= tolerance)
+        & (points[:, 0, 2] > z_min + tolerance)
+    )
 
-    layer_count = int(np.ceil(height / layer_height))
-    if layer_count > 10_000:
-        raise ValueError("layer_height would require more than 10000 layers")
+    edges = _edge_map(triangles)
+    cutters = []
+    for component in _horizontal_components(triangles, horizontal, edges):
+        indices = np.fromiter(component, dtype=np.int64)
+        component_points = points[indices]
+        z = float(np.mean(component_points[:, :, 2]))
+        bounds = (
+            float(np.min(component_points[:, :, 0])),
+            float(np.min(component_points[:, :, 1])),
+            float(np.max(component_points[:, :, 0])),
+            float(np.max(component_points[:, :, 1])),
+        )
+        width = bounds[2] - bounds[0]
+        depth = bounds[3] - bounds[1]
+        area = float(np.sum(lengths[indices]) / 2)
+        if width <= tolerance or depth <= tolerance:
+            continue
+        if abs(area - width * depth) > max(area, width * depth) * 1e-5:
+            continue
 
-    step = height / layer_count
-    growth = step * np.tan(np.deg2rad(angle))
-    previous = None
-    layers = []
+        anchors = set()
+        valid_boundary = True
+        for edge, neighbors in _boundary_edges(component, triangles, edges):
+            side = _side_for_edge(vertices[list(edge), :2], bounds, tolerance)
+            if side is None:
+                valid_boundary = False
+                break
+            if any(
+                np.min(points[neighbor, :, 2]) < z - tolerance for neighbor in neighbors
+            ):
+                anchors.add(side)
+        if not valid_boundary:
+            continue
 
-    for layer in range(layer_count):
-        z_bottom = z_min + layer * step
-        section = manifold.slice(z_bottom + step / 2)
-        if previous is None:
-            printable = section
-        elif previous.is_empty():
-            printable = previous
+        x_anchors = anchors & {"<X", ">X"}
+        y_anchors = anchors & {"<Y", ">Y"}
+        if x_anchors and not y_anchors:
+            selected_anchors = sorted(x_anchors)
+        elif y_anchors and not x_anchors:
+            selected_anchors = sorted(y_anchors)
         else:
-            printable = section ^ previous.offset(growth)
+            continue
 
-        if not printable.is_empty():
-            layers.append(printable.extrude(step).translate((0, 0, z_bottom)))
-        previous = printable
+        top = _component_top(
+            manifold, vertices, triangles, component, z, tolerance, z_max
+        )
+        if top is None or top - z <= tolerance:
+            continue
+        cutters.append(_component_cutter(bounds, z, top, selected_anchors, angle))
 
-    if not layers:
-        return Manifold()
-
-    stepped_envelope = Manifold.batch_boolean(layers, OpType.Add)
-    return stepped_envelope ^ manifold
+    if not cutters:
+        return manifold
+    return manifold - Manifold.batch_boolean(cutters, OpType.Add)
