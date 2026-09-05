@@ -28,11 +28,9 @@ class OverhangResult:
 @dataclass(frozen=True)
 class _HorizontalRegion:
     points: np.ndarray
-    triangles: np.ndarray
     boundary: tuple[int, ...]
     connected: tuple[tuple[int, int], ...]
     bottom: float
-    top: float
     tolerance: float
 
 
@@ -61,7 +59,7 @@ def detect_overhangs(
         raise ValueError("angle must be between 0 and 90 degrees")
 
     direction = _unit_vector(build_direction)
-    mesh = manifold.to_mesh()
+    mesh = manifold.to_mesh64()
     vertices = np.asarray(mesh.vert_properties[:, :3], dtype=np.float64)
     triangles = np.asarray(mesh.tri_verts, dtype=np.int64)
 
@@ -157,28 +155,11 @@ def _ordered_boundary(boundary):
     return loop if len(loop) == len(adjacency) else None
 
 
-def _component_top(manifold, vertices, triangles, component, z, tolerance, z_max):
-    top_heights = []
-    endpoint = z_max + max(1.0, z_max - z)
-    for triangle_index in component:
-        point = np.mean(vertices[triangles[triangle_index]], axis=0)
-        origin = (point[0], point[1], z + tolerance)
-        hits = manifold.ray_cast(origin, (point[0], point[1], endpoint))
-        heights = [hit.position[2] for hit in hits if hit.position[2] > z + tolerance]
-        if not heights:
-            return None
-        top_heights.append(min(heights))
-
-    if max(top_heights) - min(top_heights) > tolerance * 10:
-        return None
-    return float(np.mean(top_heights))
-
-
 def _horizontal_regions(manifold):
     x_min, y_min, z_min, x_max, y_max, z_max = manifold.bounding_box()
     scale = max(x_max - x_min, y_max - y_min, z_max - z_min, 1.0)
     tolerance = scale * 1e-6
-    mesh = manifold.to_mesh()
+    mesh = manifold.to_mesh64()
     vertices = np.asarray(mesh.vert_properties[:, :3], dtype=np.float64)
     triangles = np.asarray(mesh.tri_verts, dtype=np.int64)
     triangle_points = vertices[triangles]
@@ -205,16 +186,8 @@ def _horizontal_regions(manifold):
         if loop is None:
             continue
 
-        component_triangles = triangles[list(component)]
-        component_vertices = sorted(set(component_triangles.ravel()))
+        component_vertices = sorted(loop)
         local_index = {vertex: index for index, vertex in enumerate(component_vertices)}
-        local_triangles = np.array(
-            [
-                [local_index[vertex] for vertex in triangle]
-                for triangle in component_triangles
-            ],
-            dtype=np.int64,
-        )
         z = float(np.mean(vertices[component_vertices, 2]))
         connected = []
         for edge, neighbors in boundary:
@@ -229,19 +202,12 @@ def _horizontal_regions(manifold):
         if not connected or len(connected) == len(boundary):
             continue
 
-        top = _component_top(
-            manifold, vertices, triangles, component, z, tolerance, z_max
-        )
-        if top is None or top - z <= tolerance:
-            continue
         regions.append(
             _HorizontalRegion(
                 points=vertices[component_vertices, :2],
-                triangles=local_triangles,
                 boundary=tuple(local_index[vertex] for vertex in loop),
                 connected=tuple(connected),
                 bottom=z,
-                top=top,
                 tolerance=tolerance,
             )
         )
@@ -281,19 +247,30 @@ def _distance_to_edge(points, edge):
     return np.linalg.norm(points - nearest, axis=1)
 
 
-def _edge_ramp(region, edge, angle):
-    heights = _distance_to_edge(region.points, edge) / np.tan(np.deg2rad(angle))
-    cells = []
-    for triangle in region.triangles:
-        bottom = np.column_stack(
-            (region.points[triangle], np.full(3, -region.tolerance))
+def _edge_support(region, edge, angle, height):
+    """A segment swept by an expanding, inscribed 32-sided disk.
+
+    Each lateral face meets the requested overhang angle or is steeper.
+    Align disk vertices with the edge normal so the straight wedge is exact.
+    Unlike vertex-sampled distance ramps this does not depend on triangulation.
+    """
+    start, end = region.points[list(edge)]
+    direction = end - start
+    phase = np.arctan2(direction[1], direction[0])
+    angles = phase + np.arange(32) * (2 * np.pi / 32)
+    radius = height * np.tan(np.deg2rad(angle))
+    disk = radius * np.column_stack((np.cos(angles), np.sin(angles)))
+    upper = np.concatenate((start + disk, end + disk))
+    points = np.concatenate(
+        (
+            np.column_stack(([start, end], [0.0, 0.0])),
+            np.column_stack((upper, np.full(len(upper), height))),
         )
-        top = np.column_stack((region.points[triangle], heights[triangle]))
-        cells.append(Manifold.hull_points(np.concatenate((bottom, top))))
-    return Manifold.batch_boolean(cells, OpType.Add)
+    )
+    return Manifold.hull_points(points)
 
 
-def _region_prism(region, height):
+def _region_prism(region, height, padding=0.0):
     polygon = region.points[list(region.boundary)]
     signed_area = np.sum(
         polygon[:, 0] * np.roll(polygon[:, 1], -1)
@@ -301,10 +278,13 @@ def _region_prism(region, height):
     )
     if signed_area < 0:
         polygon = polygon[::-1]
-    return CrossSection([polygon]).extrude(height)
+    section = CrossSection([polygon])
+    if padding:
+        section = section.offset(padding)
+    return section.extrude(height)
 
 
-def _region_ramp(region, angle, directions):
+def _region_ramp(region, angle, directions, *, pad_boundary=False):
     bounds = (
         np.min(region.points[:, 0]),
         np.min(region.points[:, 1]),
@@ -321,8 +301,23 @@ def _region_ramp(region, angle, directions):
     if not selected:
         return None
 
-    ramps = [_edge_ramp(region, edge, angle) for edge in selected]
-    ramp = Manifold.batch_boolean(ramps, OpType.Intersect)
+    # This bound covers the entire polygon, including interior distance maxima
+    # between multiple anchors. The disk is inscribed, hence the cosine factor.
+    height = min(
+        np.max(_distance_to_edge(region.points, edge)) for edge in selected
+    ) / (np.tan(np.deg2rad(angle)) * np.cos(np.pi / 32))
+    height += region.tolerance
+    support = Manifold.batch_boolean(
+        [_edge_support(region, edge, angle, height) for edge in selected],
+        OpType.Add,
+    )
+    # Extend the cutter across coincident boundaries within the region tolerance.
+    # CrossSection quantization otherwise leaves disconnected slivers on curves.
+    padding = region.tolerance if pad_boundary else 0.0
+    envelope = _region_prism(region, height + padding, padding=padding).translate(
+        (0, 0, -padding)
+    )
+    ramp = envelope - support
     if ramp.is_empty() or ramp.status() != Error.NoError:
         return None
     return ramp
@@ -345,19 +340,18 @@ def fix_horizontal_overhangs(
 
     modifiers = []
     for region in _horizontal_regions(manifold):
-        ramp = _region_ramp(region, angle, directions)
+        ramp = _region_ramp(region, angle, directions, pad_boundary=mode == "cut")
         if ramp is None:
             continue
 
         if mode == "cut":
-            thickness = region.top - region.bottom
-            limit = _region_prism(region, thickness + region.tolerance)
-            modifier = (ramp ^ limit).translate((0, 0, region.bottom))
+            modifier = ramp.translate((0, 0, region.bottom))
         else:
             height = ramp.bounding_box()[5]
             if height <= region.tolerance:
                 continue
-            prism = _region_prism(region, height)
+            # Overlap the roof so roundoff cannot leave a coincident inner face.
+            prism = _region_prism(region, height + region.tolerance)
             modifier = (prism - ramp).translate((0, 0, region.bottom - height))
 
         if modifier.is_empty() or modifier.status() != Error.NoError:

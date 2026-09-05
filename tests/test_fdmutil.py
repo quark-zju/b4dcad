@@ -181,6 +181,56 @@ class AddOverhangSupportsTest(unittest.TestCase):
             fix_horizontal_overhangs(Manifold.cube(), angle=0, mode="cut")
 
 
+class SegmentSupportRegressionTest(unittest.TestCase):
+    def test_roof_with_different_top_heights_is_processed(self):
+        stem = Manifold.cube((2, 2, 5)).translate((-1, -1, 0))
+        roof = Manifold.cube((6, 2, 1)).translate((-3, -1, 5))
+        raised = Manifold.cube((6, 1, 1)).translate((-3, 0, 6))
+        part = stem + roof + raised
+        for mode in ("cut", "add"):
+            with self.subTest(mode=mode):
+                result = fix_horizontal_overhangs(part, mode=mode)
+                self.assertNotAlmostEqual(result.volume(), part.volume())
+                self.assertAlmostEqual(
+                    detect_overhangs(result, angle=45.01).area, 4.0, places=5
+                )
+
+    def test_curved_slot_boundaries_leave_no_detached_slivers(self):
+        tube = Manifold.cylinder(20, 10, circular_segments=64) - Manifold.cylinder(
+            20, 8, circular_segments=64
+        )
+        bed_area = tube.volume() / 20
+        part = tube
+        for angle in range(0, 360, 60):
+            slot = Manifold.cube((5, 12, 10)).translate((-2.5, 0, 5))
+            part -= slot.rotate((0, 0, angle))
+        for mode in ("cut", "add"):
+            with self.subTest(mode=mode):
+                result = fix_horizontal_overhangs(part, mode=mode)
+                self.assertEqual(len(result.decompose()), 1)
+                self.assertAlmostEqual(
+                    detect_overhangs(result, angle=45.01).area, bed_area, places=5
+                )
+
+    def test_short_anchor_is_printable_and_independent_of_triangulation(self):
+        wall = Manifold.cube((0.5, 1, 5)).translate((-0.25, -1, 0))
+        roof = Manifold.cube((4, 3, 1)).translate((-2, -1, 5))
+        part = wall + roof
+        for mode in ("cut", "add"):
+            with self.subTest(mode=mode):
+                coarse = fix_horizontal_overhangs(part, mode=mode)
+                refined = fix_horizontal_overhangs(part.refine(3), mode=mode)
+                self.assertAlmostEqual(coarse.volume(), refined.volume(), places=5)
+                self.assertLess((coarse - refined).volume(), 1e-5)
+                self.assertLess((refined - coarse).volume(), 1e-5)
+                for result in (coarse, refined):
+                    # Only the 0.5 mm² build-plate contact may remain horizontal.
+                    self.assertAlmostEqual(
+                        detect_overhangs(result, angle=45.01).area, 0.5, places=5
+                    )
+                    self.assertEqual(len(result.decompose()), 1)
+
+
 class SolidFdmApiTest(unittest.TestCase):
     def test_detection_is_available_on_solid(self):
         result = cube(2, 3, 4).detect_overhangs(angle=45)
