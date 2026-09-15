@@ -77,6 +77,10 @@ b4dcad preview path/to/model.py
 
 保存 `.py` 文件后浏览器会自动刷新。
 
+在 `b4dcad preview` 或 `b4dcad stl` 执行的主模型脚本中，
+`b4dcad.is_rendering()` 返回 `True`；普通运行或被其他脚本 import 时返回 `False`。
+被主模型脚本 import 的模块调用它也会返回 `False`。
+
 ## 动机
 
 我一直用 Python + CadQuery + CQ-editor 做 3D 打印模型。OCCT 内核精度出色，但遇到多孔、阵列、重复结构或复杂布尔时很容易卡——而这些恰恰是 3D 打印零件里的家常便饭。

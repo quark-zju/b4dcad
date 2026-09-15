@@ -1,6 +1,7 @@
 """Public modeling API for b4dcad."""
 
 from .fdmutil import OverhangResult
+from .rendering import is_rendering
 from .core import (
     CQ_TESSELLATION_TOLERANCE,
     Shape,
@@ -48,6 +49,7 @@ __all__ = [
     "hull2d",
     "hull2d_points",
     "hull_points",
+    "is_rendering",
     "load_stl",
     "polygon",
     "set_circular_segments",

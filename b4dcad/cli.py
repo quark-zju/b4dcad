@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from .core import Shape, Solid
+from .rendering import _RENDERING_MARKER
 
 PREVIEW_HTML = "preview.html"
 CADQUERY_STL_TOLERANCE = 0.05
@@ -85,7 +86,9 @@ def write_model_stl(model, path):
 
 
 def load_models(script, name=None):
-    namespace = runpy.run_path(script)
+    namespace = runpy.run_path(
+        script, init_globals={"__b4dcad_rendering__": _RENDERING_MARKER}
+    )
     if name:
         if name not in namespace:
             raise ValueError(f"{script} does not define {name!r}")
