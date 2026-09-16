@@ -65,6 +65,23 @@
       font-weight: 600;
       margin-right: 6px;
     }
+    #dimensions {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 1;
+      padding: 7px 10px;
+      border: 1px solid rgba(0,0,0,.12);
+      background: rgba(255,255,255,.88);
+      box-shadow: 0 4px 16px rgba(0,0,0,.08);
+      color: #222;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+    }
+    #dimensions[hidden] {
+      display: none;
+    }
   </style>
   <script type="importmap">
     {
@@ -90,6 +107,7 @@
     <span id="status" class="error" aria-live="polite"></span>
   </nav>
   <pre id="error-panel" hidden></pre>
+  <output id="dimensions" aria-live="polite" hidden></output>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -101,6 +119,7 @@
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
+    const dimensions = document.querySelector("#dimensions");
     const showError = (message) => {
       status.textContent = message;
       errorPanel.hidden = true;
@@ -245,6 +264,18 @@
       }
     }
 
+    function formatDimension(value) {
+      return Number(value.toFixed(3)).toLocaleString(undefined, {
+        maximumFractionDigits: 3,
+      });
+    }
+
+    function updateDimensions(box) {
+      const size = box.getSize(new THREE.Vector3());
+      dimensions.textContent = `X ${formatDimension(size.x)} × Y ${formatDimension(size.y)} × Z ${formatDimension(size.z)} mm`;
+      dimensions.hidden = false;
+    }
+
     function loadModel(name, options = {}) {
       const resetCamera = options.resetCamera !== false;
       activeName = name;
@@ -260,6 +291,7 @@
         rebuildModelDisplay();
 
         const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
+        updateDimensions(box);
         modelSize = box.getSize(new THREE.Vector3()).length();
         modelCenter = box.getCenter(new THREE.Vector3());
         modelExtentFromOrigin = Math.max(
