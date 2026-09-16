@@ -75,7 +75,7 @@ b4dcad preview path/to/model.py
 
 浏览器打开 `http://127.0.0.1:8765/`。有多个组件时页面顶部可切换。支持实体/线框/半透明显示。
 
-保存 `.py` 文件后浏览器会自动刷新。
+保存主模型或它从同目录导入的 `.py` 文件后，浏览器会自动刷新。
 
 在 `b4dcad preview` 或 `b4dcad stl` 执行的主模型脚本中，
 `b4dcad.is_rendering()` 返回 `True`；普通运行或被其他脚本 import 时返回 `False`。

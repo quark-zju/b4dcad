@@ -1,5 +1,7 @@
 import argparse
+import importlib
 import importlib.resources
+import importlib.util
 import json
 import runpy
 import sys
@@ -85,9 +87,11 @@ def write_model_stl(model, path):
     return model
 
 
-def load_models(script, name=None):
+def load_models(script, name=None, run_name=None):
     namespace = runpy.run_path(
-        script, init_globals={"__b4dcad_rendering__": _RENDERING_MARKER}
+        script,
+        init_globals={"__b4dcad_rendering__": _RENDERING_MARKER},
+        run_name=run_name,
     )
     if name:
         if name not in namespace:
@@ -112,8 +116,8 @@ def _preview_sort_key(item):
     return (0 if name.startswith("show") else 1, name)
 
 
-def preview_models(script, name=None):
-    models = load_models(script, name)
+def preview_models(script, name=None, run_name=None):
+    models = load_models(script, name, run_name=run_name)
     return OrderedDict(sorted(models.items(), key=_preview_sort_key))
 
 
@@ -149,8 +153,8 @@ def export_stls(script, directory, name=None):
     return paths
 
 
-def build_preview_cache(script, name=None):
-    models = preview_models(script, name)
+def build_preview_cache(script, name=None, run_name=None):
+    models = preview_models(script, name, run_name=run_name)
     return OrderedDict(
         (model_name, model_stl_bytes(model)) for model_name, model in models.items()
     )
@@ -169,6 +173,98 @@ def write_cached_stls(script, directory, cache):
         paths[model_name] = path
         print(f"Wrote {path}")
     return paths
+
+
+class _LocalModuleTracker:
+    """Discover and reload modules imported from beside a model script."""
+
+    def __init__(self, script):
+        self.script = Path(script).resolve()
+        self.local_root = self.script.parent
+        self.protected_modules = frozenset(sys.modules)
+        self.modules = {}
+        self.import_root, self.run_name = self._execution_context()
+
+    def _execution_context(self):
+        package_parts = []
+        directory = self.script.parent
+        while (directory / "__init__.py").is_file():
+            package_parts.insert(0, directory.name)
+            directory = directory.parent
+
+        if not package_parts:
+            return self.script.parent, None
+
+        package = ".".join(package_parts)
+        return directory, f"{package}.__b4dcad_preview__"
+
+    def execute(self, callback):
+        self._purge()
+        before = frozenset(sys.modules)
+        sys.path.insert(0, str(self.import_root))
+        succeeded = False
+        try:
+            result = callback(self.run_name)
+            succeeded = True
+            return result
+        finally:
+            sys.path.pop(0)
+            discovered = self._discover(frozenset(sys.modules) - before)
+            if succeeded:
+                self.modules = discovered
+            else:
+                # Keep earlier dependencies so fixing a broken file retriggers the build.
+                self.modules.update(discovered)
+
+    def _discover(self, names):
+        modules = {}
+        for name in names:
+            if name in self.protected_modules:
+                continue
+            module = sys.modules.get(name)
+            filename = getattr(module, "__file__", None)
+            if filename is None:
+                continue
+            path = Path(filename).resolve()
+            if path.suffix in {".pyc", ".pyo"}:
+                try:
+                    path = Path(importlib.util.source_from_cache(str(path))).resolve()
+                except ValueError:
+                    continue
+            if path == self.local_root or path.is_relative_to(self.local_root):
+                modules[name] = path
+        return modules
+
+    def _purge(self):
+        for name in sorted(
+            self.modules, key=lambda value: value.count("."), reverse=True
+        ):
+            module = sys.modules.pop(name, None)
+            if module is None:
+                continue
+
+            parent_name, separator, child_name = name.rpartition(".")
+            if separator:
+                parent = sys.modules.get(parent_name)
+                if parent is not None and getattr(parent, child_name, None) is module:
+                    delattr(parent, child_name)
+
+            cached = getattr(module, "__cached__", None)
+            if cached is not None:
+                Path(cached).unlink(missing_ok=True)
+
+        importlib.invalidate_caches()
+
+    def dependency_paths(self):
+        return set(self.modules.values())
+
+
+def _file_signature(path):
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
 
 class PreviewServer(ThreadingHTTPServer):
@@ -191,15 +287,20 @@ class PreviewServer(ThreadingHTTPServer):
         self.object_name = object_name
         self.write_stl = write_stl
         self.poll_interval = poll_interval
-        self.script_mtime_ns = Path(script).stat().st_mtime_ns
-        self.version = self.script_mtime_ns
+        self._module_tracker = _LocalModuleTracker(script)
+        self.version = 1
         self.rebuild_cache(write_files=bool(write_stl))
+        self._file_signatures = self._current_file_signatures()
         self._watcher = threading.Thread(target=self._watch, daemon=True)
         self._watcher.start()
 
     def rebuild_cache(self, write_files=False):
         try:
-            cache = build_preview_cache(self.script, self.object_name)
+            cache = self._module_tracker.execute(
+                lambda run_name: build_preview_cache(
+                    self.script, self.object_name, run_name=run_name
+                )
+            )
         except Exception as error:
             preview_error = {
                 "message": str(error),
@@ -241,18 +342,40 @@ class PreviewServer(ThreadingHTTPServer):
         while not self._stop_watcher.wait(self.poll_interval):
             self.check_for_change()
 
+    def _watched_paths(self):
+        return {Path(self.script), *self._module_tracker.dependency_paths()}
+
+    def _current_file_signatures(self):
+        return {path: _file_signature(path) for path in self._watched_paths()}
+
     def check_for_change(self):
-        try:
-            mtime = Path(self.script).stat().st_mtime_ns
-        except OSError as error:
-            print(f"Failed to stat {self.script}: {error}", flush=True)
+        observed = self._current_file_signatures()
+        changed = [
+            path
+            for path in observed.keys() | self._file_signatures.keys()
+            if observed.get(path) != self._file_signatures.get(path)
+        ]
+        if not changed:
             return False
-        if mtime == self.script_mtime_ns:
-            return False
-        self.script_mtime_ns = mtime
-        self.version = mtime
-        print(f"Detected change in {self.script}", flush=True)
+
+        # Preserve pre-build signatures for existing dependencies. A file edited
+        # during a slow build will then be noticed by the next poll.
+        self._file_signatures = observed
+        self.version += 1
+        print(
+            "Detected change in " + ", ".join(str(path) for path in sorted(changed)),
+            flush=True,
+        )
         self.rebuild_cache(write_files=bool(self.write_stl))
+        watched = self._watched_paths()
+        self._file_signatures = {
+            path: (
+                self._file_signatures[path]
+                if path in self._file_signatures
+                else _file_signature(path)
+            )
+            for path in watched
+        }
         with self._change:
             self._change.notify_all()
         return True
