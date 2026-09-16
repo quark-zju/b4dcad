@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .cube { stroke: #172033; stroke-width: 3; stroke-linejoin: round; }
+    .top { fill: #8fc1ff; }
+    .left { fill: #4387df; }
+    .right { fill: #285cae; }
+    @media (prefers-color-scheme: dark) {
+      .cube { stroke: #edf5ff; }
+      .top { fill: #9dccff; }
+      .left { fill: #4d91ec; }
+      .right { fill: #2f68c4; }
+    }
+  </style>
+  <g class="cube">
+    <path class="top" d="M32 5 57 19 32 33 7 19Z"/>
+    <path class="left" d="M7 19 32 33V59L7 45Z"/>
+    <path class="right" d="m32 33 25-14v26L32 59Z"/>
+  </g>
+</svg>

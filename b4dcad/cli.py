@@ -17,6 +17,7 @@ from .core import Shape, Solid
 from .rendering import _RENDERING_MARKER
 
 PREVIEW_HTML = "preview.html"
+PREVIEW_FAVICON = "preview-favicon.svg"
 CADQUERY_STL_TOLERANCE = 0.05
 
 
@@ -25,6 +26,13 @@ def load_preview_html():
     if local.exists():
         return local.read_text()
     return importlib.resources.files("b4dcad").joinpath(PREVIEW_HTML).read_text()
+
+
+def load_preview_favicon():
+    local = Path(__file__).with_name(PREVIEW_FAVICON)
+    if local.exists():
+        return local.read_bytes()
+    return importlib.resources.files("b4dcad").joinpath(PREVIEW_FAVICON).read_bytes()
 
 
 def _is_cadquery_workplane(value):
@@ -400,6 +408,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send_html()
             return
+        if path == "/favicon.svg":
+            self._send_favicon()
+            return
         if path == "/events":
             self._send_events()
             return
@@ -425,6 +436,14 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         data = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_favicon(self):
+        data = load_preview_favicon()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/svg+xml")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
