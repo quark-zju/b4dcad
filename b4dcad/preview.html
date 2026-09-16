@@ -83,6 +83,9 @@
     #dimensions[hidden] {
       display: none;
     }
+    .dimension-axis {
+      font-weight: 700;
+    }
   </style>
   <script type="importmap">
     {
@@ -161,6 +164,11 @@
 
     const axes = new THREE.Group();
     scene.add(axes);
+    const axisColors = {
+      x: 0xcc2020,
+      y: 0x208a20,
+      z: 0x205dcc,
+    };
 
     function makeAxis(direction, color, length) {
       const points = [
@@ -179,9 +187,9 @@
 
     function drawAxes(length) {
       axes.clear();
-      axes.add(makeAxis(new THREE.Vector3(1, 0, 0), 0xcc2020, length));
-      axes.add(makeAxis(new THREE.Vector3(0, 1, 0), 0x208a20, length));
-      axes.add(makeAxis(new THREE.Vector3(0, 0, 1), 0x205dcc, length));
+      axes.add(makeAxis(new THREE.Vector3(1, 0, 0), axisColors.x, length));
+      axes.add(makeAxis(new THREE.Vector3(0, 1, 0), axisColors.y, length));
+      axes.add(makeAxis(new THREE.Vector3(0, 0, 1), axisColors.z, length));
     }
 
     const loader = new STLLoader();
@@ -271,9 +279,26 @@
       });
     }
 
+    function dimensionFragment(axis, value) {
+      const fragment = document.createDocumentFragment();
+      const label = document.createElement("span");
+      label.className = "dimension-axis";
+      label.style.color = `#${axisColors[axis].toString(16).padStart(6, "0")}`;
+      label.textContent = axis.toUpperCase();
+      fragment.append(label, ` ${formatDimension(value)}`);
+      return fragment;
+    }
+
     function updateDimensions(box) {
       const size = box.getSize(new THREE.Vector3());
-      dimensions.textContent = `X ${formatDimension(size.x)} × Y ${formatDimension(size.y)} × Z ${formatDimension(size.z)} mm`;
+      dimensions.replaceChildren(
+        dimensionFragment("x", size.x),
+        " × ",
+        dimensionFragment("y", size.y),
+        " × ",
+        dimensionFragment("z", size.z),
+        " mm",
+      );
       dimensions.hidden = false;
     }
 

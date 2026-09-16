@@ -21,7 +21,12 @@ class PreviewHtmlTest(unittest.TestCase):
         self.assertIn("updateDimensions(box);", html)
         self.assertIn("right: 12px;", html)
         self.assertIn("bottom: 12px;", html)
-        self.assertIn("× Z ${formatDimension(size.z)} mm", html)
+        self.assertIn("x: 0xcc2020", html)
+        self.assertIn("y: 0x208a20", html)
+        self.assertIn("z: 0x205dcc", html)
+        self.assertIn('dimensionFragment("x", size.x)', html)
+        self.assertIn('dimensionFragment("y", size.y)', html)
+        self.assertIn('dimensionFragment("z", size.z)', html)
 
 
 if __name__ == "__main__":
