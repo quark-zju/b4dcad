@@ -17,7 +17,7 @@ maintainers = [
     { name = "quark" },
 ]
 dependencies = [
-    "manifold3d",
+    "manifold3d>=3.5,<4",
     "numpy",
 ]
 

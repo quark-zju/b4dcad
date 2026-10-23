@@ -181,7 +181,7 @@ class Solid:
         return _detect_overhangs(self.manifold, angle, build_direction)
 
     def genus(self):
-        return self.manifold.get_genus()
+        return self.manifold.genus()
 
     def fix_horizontal_overhangs(self, angle=45.0, mode="cut", directions="auto"):
         """Cut or add wedges on simple horizontal overhangs."""
@@ -195,10 +195,10 @@ class Solid:
         )
 
     def get_surface_area(self):
-        return self.manifold.get_surface_area()
+        return self.manifold.surface_area()
 
     def get_volume(self):
-        return self.manifold.get_volume()
+        return self.manifold.volume()
 
     def hull(self, *others):
         return Solid(
@@ -230,7 +230,7 @@ class Solid:
         return self.manifold.original_id()
 
     def precision(self):
-        return self.manifold.precision()
+        return self.manifold.get_tolerance()
 
     def refine(self, n=2):
         return Solid(self.manifold.refine(n))
@@ -252,7 +252,9 @@ class Solid:
         raise ValueError("not implemented")
 
     def split(self, cutter):
-        inter, diff = self.manifold.split(cutter)
+        inter, diff = self.manifold.split(
+            cutter.manifold if isinstance(cutter, Solid) else cutter
+        )
         return Solid(inter), Solid(diff)
 
     def split_by_plane(self, x=0.0, y=0.0, z=0.0, offset=0.0):
@@ -581,7 +583,7 @@ def hull(*solids):
 
 
 def hull_points(points):
-    return Shape(Manifold.hull_points(points))
+    return Solid(Manifold.hull_points(points))
 
 
 def hull2d(*shapes):
