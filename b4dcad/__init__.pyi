@@ -145,6 +145,16 @@ class Solid:
     def threemf(
         self, filename: str | PathLike[str], name: str = ..., color: _Color | None = ...
     ) -> Solid: ...
+    def png(
+        self,
+        filename: str | PathLike[str],
+        elev: float = ...,
+        azim: float = ...,
+        size: int = ...,
+        color: str = ...,
+        light: _Point3D = ...,
+        max_edge: float | None = ...,
+    ) -> Solid: ...
     def to_cq(self) -> cq.Workplane: ...
 
 class Shape:
