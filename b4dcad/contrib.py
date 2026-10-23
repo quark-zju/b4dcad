@@ -11,7 +11,7 @@ from typing import Literal
 import numpy as np
 from manifold3d import Manifold
 
-from .core import Solid, Shape, get_circular_segments
+from . import Solid, Shape, get_circular_segments
 
 
 def extrude_edges(
