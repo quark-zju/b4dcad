@@ -11,6 +11,7 @@ from .loft import polygon_nearest_alignment, ring as _loft_ring, stitch as _loft
 from .normals import triangle_normals
 from .svg import svg2polygons
 from .text import text2svg
+from .dxf import dxf2polygons
 
 # Majority vote avoids most edge/vertex ambiguities in ray intersections.
 _CONTAINS_RAYS = [
@@ -1193,3 +1194,14 @@ def level_set(sdf, bounds, edge_length, level=0, tolerance=-1):
 
     sdf is called once for each grid point, so keep it fast."""
     return Solid(Manifold.level_set(sdf, list(bounds), edge_length, level, tolerance))
+
+
+def dxf(filename=None, data=None, fn=64, on_unknown=None, spline_tol=0.005):
+    """Load a DXF file (LINE, ARC, CIRCLE, LWPOLYLINE, SPLINE) as a Shape.
+    Loops inside other loops become holes (even-odd fill).
+    Other entity types raise ValueError; see dxf2polygons for on_unknown."""
+    if data is None:
+        with open(filename, encoding="latin-1") as f:
+            data = f.read()
+    polys = dxf2polygons(data, fn=fn, on_unknown=on_unknown, spline_tol=spline_tol)
+    return Shape(CrossSection(polys, fillrule=manifold3d.FillRule.EvenOdd))

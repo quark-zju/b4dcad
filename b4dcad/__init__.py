@@ -4,6 +4,7 @@ from .fdmutil import OverhangResult
 from .rendering import is_rendering
 from .core import (
     CQ_TESSELLATION_TOLERANCE,
+    dxf,
     loft,
     sweep,
     mesh,
@@ -39,6 +40,7 @@ from .core import (
 )
 
 __all__ = [
+    "dxf",
     "loft",
     "sweep",
     "mesh",

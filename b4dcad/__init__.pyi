@@ -299,3 +299,12 @@ def level_set(
     level: float = ...,
     tolerance: float = ...,
 ) -> Solid: ...
+def dxf(
+    filename: str | None = ...,
+    data: str | None = ...,
+    fn: int = ...,
+    on_unknown: (
+        Callable[[str, list[tuple[str, str]]], Iterable[ArrayLike] | None] | None
+    ) = ...,
+    spline_tol: float = ...,
+) -> Shape: ...
