@@ -5,8 +5,10 @@
 ## 安装
 
 ```bash
-pip install -e .
+make dev-install
 ```
+
+此命令使用当前 `python` 安装依赖和 CLI 入口，并在其 `site-packages` 中建立直接指向本项目 `b4dcad/` 源码目录的符号链接，方便 Zed 等编辑器解析导入。请在编辑器所用的 Python 环境中运行；移动项目后需重新运行。
 
 核心依赖：`manifold3d`、`numpy`。
 
