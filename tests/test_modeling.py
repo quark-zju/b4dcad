@@ -143,3 +143,29 @@ class LoftSweepMeshTest(unittest.TestCase):
                 sweep(shape, path)
         with self.assertRaises(ValueError):
             sweep(shape, loop, twist=45, closed=True)
+
+    def test_mesh_duplicate_vertices_winding_and_invalid_indices(self):
+        import numpy as np
+        from b4dcad import mesh
+
+        original = cube(2, 3, 4)
+        data = original.to_mesh()
+        vertices = data.vert_properties[data.tri_verts].reshape(-1, 3)
+        triangles = np.arange(len(vertices)).reshape(-1, 3)
+        for tris in (triangles, triangles[:, ::-1]):
+            self.assertAlmostEqual(mesh(vertices, tris).get_volume(), 24)
+        for tris in (triangles.astype(float), [[-1, 0, 1]], [[0, 1, len(vertices)]]):
+            with self.assertRaises(ValueError):
+                mesh(vertices, tris)
+        with self.assertRaises(ValueError):
+            mesh(vertices, triangles[:1])
+
+    def test_level_set_sphere_sign_and_resolution(self):
+        import math
+        from b4dcad import level_set
+
+        sphere = level_set(
+            lambda x, y, z: 1 - x * x - y * y - z * z, (-2, -2, -2, 2, 2, 2), 0.2
+        )
+        self.assertAlmostEqual(sphere.get_volume(), 4 * math.pi / 3, delta=0.1)
+        self.assertTrue(sphere.contains((0, 0, 0)))

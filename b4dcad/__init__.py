@@ -6,6 +6,8 @@ from .core import (
     CQ_TESSELLATION_TOLERANCE,
     loft,
     sweep,
+    mesh,
+    level_set,
     union,
     difference,
     intersection,
@@ -39,6 +41,8 @@ from .core import (
 __all__ = [
     "loft",
     "sweep",
+    "mesh",
+    "level_set",
     "union",
     "difference",
     "intersection",

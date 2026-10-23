@@ -1140,3 +1140,56 @@ def sweep(shape, path, twist=0, closed=False, x_axis=None):
     if out.status() != manifold3d.Error.NoError:
         raise ValueError(f"sweep failed: {out.status().name}")
     return Solid(out)
+
+
+def mesh(verts, tris, merge=True):
+    """A Solid from a triangle mesh: verts is an (N, 3) array of points and
+    tris an (M, 3) array of vertex indices.
+
+    With merge=True, vertices at the same position are joined first, so a
+    mesh with duplicate vertices (one set for each triangle, as in STL)
+    still closes. If the triangles wind clockwise (seen from outside), the
+    winding is turned over. Raises ValueError if the mesh is not a closed
+    manifold."""
+    v = np.asarray(verts, dtype=np.float64)
+    indices = np.asarray(tris)
+    if v.ndim != 2 or v.shape[1] != 3 or not np.all(np.isfinite(v)):
+        raise ValueError("verts must be a finite (N, 3) array")
+    if (
+        indices.ndim != 2
+        or indices.shape[1] != 3
+        or not np.issubdtype(indices.dtype, np.integer)
+    ):
+        raise ValueError("tris must be an integer (M, 3) array")
+    if np.any(indices < 0) or np.any(indices >= len(v)):
+        raise ValueError("triangle indices are out of bounds")
+    v = np.ascontiguousarray(v)
+    t = np.ascontiguousarray(indices, dtype=np.uint64)
+    m = manifold3d.Mesh64(vert_properties=v, tri_verts=t)
+    if merge:
+        m.merge()
+    solid = Manifold(m)
+    if solid.status() != manifold3d.Error.NoError:
+        raise ValueError(f"mesh is not a closed manifold: {solid.status().name}")
+    if solid.volume() < 0:
+        m = manifold3d.Mesh64(
+            vert_properties=v, tri_verts=np.ascontiguousarray(t[:, ::-1])
+        )
+        if merge:
+            m.merge()
+        solid = Manifold(m)
+    return Solid(solid)
+
+
+def level_set(sdf, bounds, edge_length, level=0, tolerance=-1):
+    """A Solid from a signed distance function (marching tetrahedra).
+
+    sdf(x, y, z) returns a float: positive inside, negative outside. (Many
+    SDF formulas use the opposite sign; give lambda x, y, z: -f(x, y, z).)
+    bounds is (xmin, ymin, zmin, xmax, ymax, zmax), the same order as
+    Solid.bounding_box(). edge_length sets the grid size, and with it the
+    detail and the time. A positive `level` insets the surface, and a
+    negative one outsets it.
+
+    sdf is called once for each grid point, so keep it fast."""
+    return Solid(Manifold.level_set(sdf, list(bounds), edge_length, level, tolerance))

@@ -291,3 +291,11 @@ def sweep(
     closed: bool = ...,
     x_axis: _Point3D | None = ...,
 ) -> Solid: ...
+def mesh(verts: ArrayLike, tris: ArrayLike, merge: bool = ...) -> Solid: ...
+def level_set(
+    sdf: Callable[[float, float, float], float],
+    bounds: Sequence[float],
+    edge_length: float,
+    level: float = ...,
+    tolerance: float = ...,
+) -> Solid: ...
