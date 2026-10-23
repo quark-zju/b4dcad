@@ -12,6 +12,20 @@ from .normals import triangle_normals
 from .svg import svg2polygons
 from .text import text2svg
 
+# Majority vote avoids most edge/vertex ambiguities in ray intersections.
+_CONTAINS_RAYS = [
+    np.array(d, dtype=float) / np.linalg.norm(d)
+    for d in [
+        (1, 0, 0),
+        (0, 1, 0),
+        (0, 0, 1),
+        (1, 1, 1),
+        (-1, 1, 1),
+        (1, -1, 1),
+        (1, 1, -1),
+    ]
+]
+
 stl_dtype = np.dtype(
     [("norm", np.float32, 3), ("vert", np.float32, 9), ("pad", np.int8, 2)]
 )
@@ -334,13 +348,6 @@ class Solid:
         m = manifold3d.Mesh(verts, tris, face_id=np.arange(len(tris)))
         return Solid(Manifold(m))
 
-    # this requires experimental fork of manifold3d
-    # def minkowski_sum(self, other):
-    #     return Solid(self.manifold.minkowski_sum(other.manifold))
-
-    # def minkowski_difference(self, other):
-    #     return Solid(self.manifold.minkowski_difference(other.manifold))
-
     def stl(self, filename=None):
         mesh = self.to_mesh()
         tris = mesh.tri_verts
@@ -411,6 +418,77 @@ class Solid:
         rot = np.stack([u, v, n])
         m = np.column_stack([rot, -rot @ o])
         return Shape(self.manifold.transform(m).slice(0))
+
+    def prune(self, min_volume=1e-3, largest_only=False):
+        """Drop separate bodies smaller than `min_volume` (mm^3): the thin
+        skins and slivers that booleans can leave where faces almost meet.
+        With largest_only=True, keep only the biggest body."""
+        parts = sorted(
+            self.manifold.decompose(), key=lambda m: m.volume(), reverse=True
+        )
+        if largest_only:
+            parts = parts[:1]
+        parts = [m for m in parts if m.volume() >= min_volume]
+        return Solid(Manifold.compose(parts)) if parts else Solid()
+
+    def contains(self, point):
+        """True if `point` is inside the solid.
+
+        Casts rays from the point to beyond the bounding box, along the
+        three axes and the four cube diagonals, and counts the surface hits
+        of each ray: an odd count is inside. A ray that runs through an edge
+        or a vertex can count wrong, so the majority of the seven rays wins."""
+        p = np.array(point, dtype=float)
+        if p.shape != (3,) or not np.all(np.isfinite(p)):
+            raise ValueError("point must be a finite 3D point")
+        if self.is_empty():
+            return False
+        x0, y0, z0, x1, y1, z1 = self.bounding_box()
+        if not (x0 <= p[0] <= x1 and y0 <= p[1] <= y1 and z0 <= p[2] <= z1):
+            return False
+        span = np.linalg.norm([x1 - x0, y1 - y0, z1 - z0]) + 1.0
+        inside = 0
+        for d in _CONTAINS_RAYS:
+            hits = self.manifold.ray_cast(tuple(p), tuple(p + d * span))
+            inside += len(hits) % 2
+        return bool(inside > len(_CONTAINS_RAYS) // 2)
+
+    def min_gap(self, other, search_length=None):
+        """Smallest distance between this solid and `other` (0 if they
+        touch or overlap). The default search length covers both
+        bounding boxes, so the result is the real gap."""
+        if search_length is None:
+            a = np.array(self.bounding_box()).reshape(2, 3)
+            b = np.array(other.bounding_box()).reshape(2, 3)
+            lo, hi = np.minimum(a[0], b[0]), np.maximum(a[1], b[1])
+            search_length = float(np.linalg.norm(hi - lo)) + 1.0
+        return self.manifold.min_gap(other.manifold, search_length)
+
+    def simplify(self, tolerance=0):
+        """Remove vertices that move no surface more than `tolerance` (mm):
+        the extra edges that booleans and refine() leave on flat faces.
+        With 0, use the tolerance of the solid (see precision())."""
+        return Solid(self.manifold.simplify(tolerance))
+
+    def project(self):
+        """The outline of the solid seen from +z (its shadow on the xy
+        plane), as a Shape."""
+        return Shape(self.manifold.project())
+
+    def smooth(self, n=4, min_sharp_angle=52.5, min_smoothness=0):
+        """Round the faceted surface: split each edge into n parts and move
+        the new vertices onto a smooth (G1) surface through the old ones.
+        Edges with a dihedral angle above `min_sharp_angle` (degrees) stay
+        sharp. `min_smoothness` (0 to 1) rounds the sharp edges a little."""
+        return Solid(
+            self.manifold.smooth_out(min_sharp_angle, min_smoothness).refine(n)
+        )
+
+    def minkowski_sum(self, other):
+        return Solid(self.manifold.minkowski_sum(other.manifold))
+
+    def minkowski_difference(self, other):
+        return Solid(self.manifold.minkowski_difference(other.manifold))
 
 
 class Shape:

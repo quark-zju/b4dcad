@@ -77,3 +77,27 @@ class BatchBooleanTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             union(cube(), square())
         self.assertIsInstance(union(), Solid)
+
+
+class SolidToolsTest(unittest.TestCase):
+    def test_measure_and_cleanup(self):
+        part = cube(2, 3, 4)
+        self.assertTrue(part.contains((1, 1, 1)))
+        self.assertFalse(part.contains((3, 1, 1)))
+        self.assertFalse(Solid().contains((0, 0, 0)))
+        self.assertAlmostEqual(part.min_gap(part.move(x=4.5)), 2.5)
+        self.assertAlmostEqual(part.project().area(), 6)
+        self.assertAlmostEqual(part.refine(2).simplify().get_volume(), 24)
+        tiny = cube(0.01, 0.01, 0.01).move(x=10)
+        self.assertAlmostEqual((part + tiny).prune().get_volume(), 24)
+        self.assertAlmostEqual((part + tiny).prune(largest_only=True).get_volume(), 24)
+        self.assertTrue(tiny.prune().is_empty())
+        smoothed = part.smooth()
+        self.assertGreater(smoothed.get_volume(), 0)
+        self.assertGreater(smoothed.num_tri(), part.num_tri())
+
+    def test_minkowski(self):
+        part = cube(2, 2, 2)
+        tool = cube(1, 1, 1)
+        self.assertAlmostEqual(part.minkowski_sum(tool).get_volume(), 27)
+        self.assertAlmostEqual(part.minkowski_difference(tool).get_volume(), 1)
