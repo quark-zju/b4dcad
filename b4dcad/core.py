@@ -1,5 +1,9 @@
 from typing import NamedTuple
 
+import io
+import zipfile
+from xml.sax.saxutils import quoteattr
+
 import manifold3d
 import numpy as np
 from manifold3d import CrossSection, Manifold, Mesh
@@ -490,6 +494,12 @@ class Solid:
 
     def minkowski_difference(self, other):
         return Solid(self.manifold.minkowski_difference(other.manifold))
+
+    def threemf(self, filename=None, name="part", color=None):
+        """Write a 3MF file with this solid as one object. See save_3mf().
+        Without a filename, return the file as bytes."""
+        out = save_3mf(filename, [(name, self, color)])
+        return self if filename else out
 
 
 class Shape:
@@ -1205,3 +1215,110 @@ def dxf(filename=None, data=None, fn=64, on_unknown=None, spline_tol=0.005):
             data = f.read()
     polys = dxf2polygons(data, fn=fn, on_unknown=on_unknown, spline_tol=spline_tol)
     return Shape(CrossSection(polys, fillrule=manifold3d.FillRule.EvenOdd))
+
+
+def _hex_color(color):
+    if color is None:
+        return None
+    if isinstance(color, str):
+        c = color.lstrip("#")
+        if len(c) not in (6, 8):
+            raise ValueError(f"color must be #RRGGBB or #RRGGBBAA, not {color!r}")
+        try:
+            int(c, 16)
+        except ValueError as exc:
+            raise ValueError("color must contain hexadecimal digits") from exc
+        return "#" + c.upper()
+    color = tuple(color)
+    if len(color) not in (3, 4) or not all(np.isfinite(v) for v in color):
+        raise ValueError("color must have three or four finite channels")
+    rgba = [int(round(255 * min(max(float(v), 0), 1))) for v in color]
+    return "#" + "".join(f"{v:02X}" for v in rgba)
+
+
+def save_3mf(filename, parts):
+    """Write solids to a 3MF file (3MF core spec), each one its own object,
+    so that a slicer can place, colour or assign them one by one.
+
+    parts is a list of Solids, or of (name, Solid) or (name, Solid, color).
+    color is '#RRGGBB', '#RRGGBBAA', or an (r, g, b[, a]) tuple of 0-1
+    floats. The vertices are written in 64-bit precision, so the mesh
+    stays closed. Empty solids are skipped. Without a filename, return
+    the file as bytes."""
+    objects, colors = [], []
+    for k, part in enumerate(parts, start=1):
+        if isinstance(part, Solid):
+            part = (f"part {k}", part, None)
+        name, solid, color = (tuple(part) + (None,))[:3]
+        if solid.is_empty():
+            continue
+        objects.append((name, solid, _hex_color(color)))
+        if objects[-1][2] is not None:
+            colors.append(objects[-1][2])
+    xml = io.StringIO()
+    xml.write(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<model unit="millimeter" xml:lang="en-US" '
+        'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        "<resources>"
+    )
+    if colors:
+        xml.write('<basematerials id="1">')
+        for c in colors:
+            xml.write(f'<base name={quoteattr(c)} displaycolor="{c}"/>')
+        xml.write("</basematerials>")
+    oid, cidx, ids = 1, 0, []
+    for name, solid, color in objects:
+        oid += 1
+        ids.append(oid)
+        mat = ""
+        if color is not None:
+            mat = f' pid="1" pindex="{cidx}"'
+            cidx += 1
+        mesh = solid.manifold.to_mesh64()
+        xml.write(
+            f'<object id="{oid}" name={quoteattr(str(name))} type="model"{mat}><mesh><vertices>'
+        )
+        np.savetxt(
+            xml,
+            np.asarray(mesh.vert_properties)[:, :3],
+            fmt='<vertex x="%.17g" y="%.17g" z="%.17g"/>',
+            newline="",
+        )
+        xml.write("</vertices><triangles>")
+        np.savetxt(
+            xml,
+            np.asarray(mesh.tri_verts),
+            fmt='<triangle v1="%d" v2="%d" v3="%d"/>',
+            newline="",
+        )
+        xml.write("</triangles></mesh></object>")
+    xml.write("</resources><build>")
+    for i in ids:
+        xml.write(f'<item objectid="{i}"/>')
+    xml.write("</build></model>")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _3MF_TYPES)
+        z.writestr("_rels/.rels", _3MF_RELS)
+        z.writestr("3D/3dmodel.model", xml.getvalue())
+    if filename is None:
+        return buf.getvalue()
+    with open(filename, "wb") as f:
+        f.write(buf.getvalue())
+
+
+_3MF_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>'
+    "</Types>"
+)
+_3MF_RELS = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Target="/3D/3dmodel.model" Id="rel0" '
+    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+    "</Relationships>"
+)
