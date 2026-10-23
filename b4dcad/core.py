@@ -80,6 +80,16 @@ def _align_delta(source_bounds, target_bounds, face, axes):
     return delta
 
 
+def _unit_vector(value, name):
+    vector = np.asarray(value, dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise ValueError(f"{name} must be a finite 3D vector")
+    length = np.linalg.norm(vector)
+    if length == 0:
+        raise ValueError(f"{name} must be nonzero")
+    return vector / length
+
+
 # wrapper for Manifold
 # tweaks API for scriptable modeling
 class Solid:
@@ -235,8 +245,13 @@ class Solid:
     def refine(self, n=2):
         return Solid(self.manifold.refine(n))
 
-    def rotate(self, x=0.0, y=0.0, z=0.0):
-        return Solid(self.manifold.rotate((x, y, z)))
+    def rotate(self, x=0, y=0, z=0, origin=None):
+        """Rotate by x, then y, then z degrees about the world axes. With
+        `origin`, rotate about that point and not about (0, 0, 0)."""
+        if origin is None:
+            return Solid(self.manifold.rotate((x, y, z)))
+        ox, oy, oz = origin
+        return self.move(-ox, -oy, -oz).rotate(x, y, z).move(ox, oy, oz)
 
     def rotate_axis(self, axis, degree):
         axis = axis.upper()
@@ -357,6 +372,45 @@ class Solid:
         not pay their import cost unless this bridge is actually used.
         """
         return _solid_to_cq(self)
+
+    def orient(self, direction, origin=(0, 0, 0), x_axis=None):
+        """Turn and move so that local +z points along `direction` and the
+        local origin lands on `origin`.
+
+        Build a part along +z (a cylinder, a hole, threads), then orient it:
+            cylinder(h=10, d=3).orient((1, 1, 0), origin=(5, 0, 2))
+        `x_axis` sets the roll about the axis: local +x points as close to
+        it as it can (default: world z, or world x if direction is near z)."""
+        z = _unit_vector(direction, "direction")
+        if x_axis is None:
+            x_axis = (1, 0, 0) if abs(z[2]) > 0.9 else (0, 0, 1)
+        x = np.array(x_axis, dtype=float)
+        x = x - (x @ z) * z
+        if np.linalg.norm(x) < 1e-9:
+            raise ValueError("x_axis is parallel to direction")
+        x /= np.linalg.norm(x)
+        y = np.cross(z, x)
+        m = np.column_stack([x, y, z, np.array(origin, dtype=float)])
+        return Solid(self.manifold.transform(m))
+
+    def section(self, normal=(0, 0, 1), origin=(0, 0, 0), x_axis=None):
+        """Cut with the plane through `origin` with `normal`; return a Shape.
+
+        2D frame: `origin` maps to (0, 0), the 2D x axis is `x_axis` (default:
+        the world x axis projected into the plane, or world y if normal is
+        close to x), and the 2D y axis is normal x x_axis (right handed).
+        With the default arguments this is the same as cross_section(s, 0)."""
+        n = _unit_vector(normal, "normal")
+        if x_axis is None:
+            x_axis = (1, 0, 0) if abs(n[0]) < 0.9 else (0, 1, 0)
+        u = np.array(x_axis, dtype=float)
+        u = u - (u @ n) * n
+        u = _unit_vector(u, "projected x_axis")
+        v = np.cross(n, u)
+        o = np.array(origin, dtype=float)
+        rot = np.stack([u, v, n])
+        m = np.column_stack([rot, -rot @ o])
+        return Shape(self.manifold.transform(m).slice(0))
 
 
 class Shape:
@@ -531,8 +585,13 @@ class Shape:
             )
         )
 
-    def rotate(self, z):
-        return Shape(self.cross_section.rotate(z))
+    def rotate(self, z, origin=None):
+        """Rotate by z degrees. With `origin`, rotate about that point and
+        not about (0, 0)."""
+        if origin is None:
+            return Shape(self.cross_section.rotate(z))
+        ox, oy = origin
+        return self.move(-ox, -oy).rotate(z).move(ox, oy)
 
     def rotate_axis(self, axis, degree):
         if axis.upper() != "Z":

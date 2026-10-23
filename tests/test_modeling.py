@@ -23,3 +23,36 @@ class CompatibilityTest(unittest.TestCase):
         part = hull_points([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)])
         self.assertIsInstance(part, Solid)
         self.assertAlmostEqual(part.get_volume(), 1 / 6)
+
+
+class PlacementTest(unittest.TestCase):
+    def test_rotation_about_point(self):
+        from b4dcad import square
+        import numpy as np
+
+        np.testing.assert_allclose(
+            cube(1, 1, 1).move(x=2).rotate(z=90.0, origin=(2, 0, 0)).bounding_box(),
+            (1, 0, 0, 2, 1, 1),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            square(1, 1).move(x=2).rotate(90.0, origin=(2, 0)).bounds(),
+            (1, 0, 2, 1),
+            atol=1e-12,
+        )
+
+    def test_orientation_and_section(self):
+        import numpy as np
+
+        part = cube(2, 3, 4)
+        moved = part.orient((1, 0, 0), origin=(10, 0, 0), x_axis=(0, 1, 0))
+        np.testing.assert_allclose(moved.bounding_box(), (10, 0, 0, 14, 2, 3))
+        self.assertAlmostEqual(part.section((1, 0, 0), (1, 0, 0)).area(), 12)
+        self.assertAlmostEqual(part.section(origin=(0, 0, 2)).area(), 6)
+        for call in (
+            lambda: part.orient((0, 0, 0)),
+            lambda: part.section((0, 0, 0)),
+            lambda: part.section(x_axis=(0, 0, 1)),
+        ):
+            with self.assertRaises(ValueError):
+                call()
