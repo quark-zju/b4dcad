@@ -101,3 +101,45 @@ class SolidToolsTest(unittest.TestCase):
         tool = cube(1, 1, 1)
         self.assertAlmostEqual(part.minkowski_sum(tool).get_volume(), 27)
         self.assertAlmostEqual(part.minkowski_difference(tool).get_volume(), 1)
+
+
+class LoftSweepMeshTest(unittest.TestCase):
+    def test_loft_taper_and_varying_vertex_counts(self):
+        from b4dcad import loft, square, circle
+
+        for match in ("arc", "shortest"):
+            part = loft(
+                [square(2, 2, center=True), square(4, 4, center=True)],
+                [0.0, 3.0],
+                match=match,
+            )
+            self.assertAlmostEqual(part.get_volume(), 28)
+        self.assertGreater(
+            loft([square(2, 2, center=True), circle(r=2)], [0, 3]).get_volume(), 0
+        )
+        for heights in ([0, 0], [1, 0], [0, float("nan")]):
+            with self.assertRaises(ValueError):
+                loft([square(), square()], heights)
+        with self.assertRaises(ValueError):
+            loft(
+                [square(4, 4, center=True) - square(2, 2, center=True), square()],
+                [0, 3],
+            )
+
+    def test_sweep_holes_closed_path_and_invalid_paths(self):
+        from b4dcad import sweep, square, circle
+
+        shape = square(4, 4, center=True) - square(2, 2, center=True)
+        self.assertAlmostEqual(sweep(shape, [(0, 0, 0), (0, 0, 3)]).get_volume(), 36)
+        loop = [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)]
+        self.assertEqual(sweep(circle(r=0.5), loop, closed=True).genus(), 1)
+        for path in (
+            [],
+            [(0, 0, 0)],
+            [(0, 0, 0), (0, 0, 0)],
+            [(0, 0, 0), (1, 0, 0), (0, 0, 0)],
+        ):
+            with self.assertRaises(ValueError):
+                sweep(shape, path)
+        with self.assertRaises(ValueError):
+            sweep(shape, loop, twist=45, closed=True)

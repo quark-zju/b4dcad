@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Literal, NamedTuple, TypeAlias, TypeVar, overload
 
 import cadquery as cq
+from numpy.typing import ArrayLike
 from manifold3d import CrossSection, Manifold, Mesh
 
 from .fdmutil import OverhangResult
@@ -278,3 +279,15 @@ def intersection(*items: _Model) -> _Model: ...
 def intersection(items: Iterable[_Model]) -> _Model: ...
 @overload
 def intersection() -> Solid: ...
+def loft(
+    shapes: Sequence[Shape],
+    heights: Sequence[float],
+    match: Literal["arc", "shortest"] = ...,
+) -> Solid: ...
+def sweep(
+    shape: Shape,
+    path: ArrayLike,
+    twist: float = ...,
+    closed: bool = ...,
+    x_axis: _Point3D | None = ...,
+) -> Solid: ...
