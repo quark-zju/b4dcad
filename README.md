@@ -95,6 +95,12 @@ Manifold 用 mesh 做 CSG，性能好得多，精度对 FDM 打印完全够用�
 
 代码源自 [wrongbad/badcad](https://github.com/wrongbad/badcad)。原项目偏向 IPython Notebook 使用；这个版本改成普通 Python 脚本工作流，并移除了 notebook 相关逻辑。
 
+## 新增建模功能
+
+支持批量布尔、定向放置、任意平面截面、loft/sweep、DXF、网格和隐式场构造，
+以及实体清理、测量和 3MF/PNG 导出。示例、类型约定和几何限制见
+[上游建模功能导入](docs/upstream-modeling.md)。
+
 ## 常用 API
 
 布尔运算：
