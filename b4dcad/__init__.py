@@ -4,6 +4,9 @@ from .fdmutil import OverhangResult
 from .rendering import is_rendering
 from .core import (
     CQ_TESSELLATION_TOLERANCE,
+    union,
+    difference,
+    intersection,
     Shape,
     Size,
     Solid,
@@ -32,6 +35,9 @@ from .core import (
 )
 
 __all__ = [
+    "union",
+    "difference",
+    "intersection",
     "CQ_TESSELLATION_TOLERANCE",
     "OverhangResult",
     "Shape",

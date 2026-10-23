@@ -56,3 +56,24 @@ class PlacementTest(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 call()
+
+
+class BatchBooleanTest(unittest.TestCase):
+    def test_shapes_and_solids_with_empty_operands(self):
+        from b4dcad import Shape, square, union, difference, intersection
+
+        for base, empty, measure in (
+            (cube(2, 2, 2), Solid(), lambda x: x.get_volume()),
+            (square(2, 2), Shape(), lambda x: x.area()),
+        ):
+            self.assertIsInstance(union([empty, base]), type(base))
+            self.assertAlmostEqual(
+                measure(union(x for x in [empty, base])), measure(base)
+            )
+            self.assertTrue(difference(empty, base).is_empty())
+            self.assertTrue(intersection(base, empty).is_empty())
+            self.assertTrue(intersection([empty, base]).is_empty())
+            self.assertAlmostEqual(measure(difference(base, [])), measure(base))
+        with self.assertRaises(TypeError):
+            union(cube(), square())
+        self.assertIsInstance(union(), Solid)

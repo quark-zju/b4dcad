@@ -869,3 +869,50 @@ def from_cq(obj, tolerance=CQ_TESSELLATION_TOLERANCE):
 
 
 set_circular_segments(64)  # set default
+
+
+def _flat(items):
+    # Accept positional objects and a single iterable, including generators.
+    if len(items) == 1 and not isinstance(items[0], (Solid, Shape)):
+        items = tuple(items[0])
+    else:
+        items = tuple(items)
+    if items:
+        kind = type(items[0])
+        if not isinstance(items[0], (Solid, Shape)) or any(
+            type(x) is not kind for x in items
+        ):
+            raise TypeError("batch booleans require all Solids or all Shapes")
+    return items
+
+
+def _batch(items, op):
+    items = _flat(items)
+    if not items:
+        return Solid()
+    if isinstance(items[0], Shape):
+        return Shape(CrossSection.batch_boolean([s.cross_section for s in items], op))
+    return Solid(Manifold.batch_boolean([s.manifold for s in items], op))
+
+
+def union(*items):
+    """Join many Solids (or many Shapes) in one batch operation.
+
+    For Shapes, this is much faster than a + b + c + ... in a loop. For
+    Solids the gain is smaller, because manifold already collects a chain
+    of + operations. Give the items as arguments or as one list. Empty items are ignored, and no items give
+    an empty Solid."""
+    return _batch(items, manifold3d.OpType.Add)
+
+
+def difference(base, *cutters):
+    """Remove many Solids (or many Shapes) from `base` in one batch
+    operation. The cutters can be arguments or one list."""
+    if base.is_empty():
+        return base
+    return _batch([base, *_flat(cutters)], manifold3d.OpType.Subtract)
+
+
+def intersection(*items):
+    """Intersect homogeneous Solids or Shapes; an empty operand empties the result."""
+    return _batch(items, manifold3d.OpType.Intersect)
