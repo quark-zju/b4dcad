@@ -56,10 +56,19 @@
     }
     #components {
       display: flex;
+      flex-wrap: wrap;
+      min-width: 0;
+      max-width: 100%;
+      row-gap: 4px;
+    }
+    #components button {
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
     #tools {
       display: flex;
       gap: 8px;
+      flex-wrap: wrap;
       margin-left: auto;
     }
     #source-name {
@@ -289,6 +298,26 @@
       return fragment;
     }
 
+    function estimateVolume(geometry, origin) {
+      const positions = geometry.attributes.position;
+      const index = geometry.index;
+      const count = index ? index.count : positions.count;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const cross = new THREE.Vector3();
+      let signedVolume = 0;
+      // Sum oriented tetrahedra about the box center to reduce cancellation
+      // for models translated far from the coordinate origin.
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(positions, index ? index.getX(i) : i).sub(origin);
+        b.fromBufferAttribute(positions, index ? index.getX(i + 1) : i + 1).sub(origin);
+        c.fromBufferAttribute(positions, index ? index.getX(i + 2) : i + 2).sub(origin);
+        signedVolume += a.dot(cross.crossVectors(b, c)) / 6;
+      }
+      return Math.abs(signedVolume);
+    }
+
     function updateDimensions(box) {
       const size = box.getSize(new THREE.Vector3());
       dimensions.replaceChildren(
@@ -299,6 +328,9 @@
         dimensionFragment("z", size.z),
         " mm",
       );
+      const volume = document.createElement("div");
+      volume.textContent = `Volume ≈ ${formatDimension(estimateVolume(currentGeometry, box.getCenter(new THREE.Vector3())))} mm³`;
+      dimensions.append(volume);
       dimensions.hidden = false;
     }
 
