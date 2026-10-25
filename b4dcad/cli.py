@@ -144,17 +144,21 @@ def load_model(script, name=None):
     return next(iter(load_models(script).values()))
 
 
-def stl_path(script, directory, name):
+def stl_path(script, directory, name, count):
     stem = Path(script).stem
-    return Path(directory) / f"{stem}-{name}.stl"
+    if count == 1:
+        return Path(directory) / f"{stem}.stl"
+    return Path(directory) / stem / f"{name}.stl"
 
 
 def export_stls(script, directory, name=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     paths = OrderedDict()
-    for model_name, model in export_models(script, name).items():
-        path = stl_path(script, directory, model_name)
+    models = export_models(script, name)
+    for model_name, model in models.items():
+        path = stl_path(script, directory, model_name, len(models))
+        path.parent.mkdir(parents=True, exist_ok=True)
         write_model_stl(model, path)
         paths[model_name] = path
         print(f"Wrote {path}")
@@ -172,10 +176,10 @@ def write_cached_stls(script, directory, cache):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     paths = OrderedDict()
-    for model_name, data in cache.items():
-        if model_name.startswith("show"):
-            continue
-        path = stl_path(script, directory, model_name)
+    models = {name: data for name, data in cache.items() if not name.startswith("show")}
+    for model_name, data in models.items():
+        path = stl_path(script, directory, model_name, len(models))
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)
         paths[model_name] = path

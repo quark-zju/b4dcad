@@ -63,7 +63,7 @@ CLI 可以直接识别脚本中的 CadQuery `Workplane` 变量，无需手动转
 b4dcad stl path/to/model.py ./output_dir
 ```
 
-输出文件为 `输出目录/源文件名-组件名.stl`。也可以直接在 Python 里调用：
+单件输出为 `输出目录/源文件名.stl`；多件输出到 `输出目录/源文件名/组件名.stl`（源文件名不含 `.py` 扩展名）。`preview --write-stl` 使用同样的规则，`show*` 预览对象不计入导出数量。也可以直接在 Python 里调用：
 
 ```py
 model.stl("part.stl")
