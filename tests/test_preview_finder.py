@@ -67,7 +67,8 @@ class FinderExportsTest(unittest.TestCase):
                 paths["part"], Path(directory).resolve() / "wallet" / "part.stl"
             )
             self.assertEqual(paths["part"].read_bytes(), b"part mesh")
-            self.assertEqual(paths["show_all"].read_bytes(), b"assembly mesh")
+            self.assertNotIn("show_all", paths)
+            self.assertFalse((paths["part"].parent / "show_all.stl").exists())
             single = write_finder_exports({"only": b"single"}, directory, "single.py")
             self.assertEqual(
                 single["only"], Path(directory).resolve() / "single" / "only.stl"
@@ -130,6 +131,9 @@ class ShowInFinderTest(unittest.TestCase):
             path = Path(command[-1])
             self.assertEqual(path, target / "model" / "part.stl")
             for name in self.server.model_names():
+                if name.startswith("show"):
+                    self.assertFalse((path.parent / f"{name}.stl").exists())
+                    continue
                 self.assertEqual(
                     (path.parent / f"{name}.stl").read_bytes(),
                     self.server.stl_bytes(name),
@@ -142,24 +146,25 @@ class ShowInFinderTest(unittest.TestCase):
         finder.assert_called_once()
         self.assertEqual(Path(result["path"]), target / "model" / "part.stl")
 
-    def test_fallback_directory_and_selected_preview_only_model(self):
+    def test_fallback_directory_excludes_preview_only_models(self):
         self.assertEqual(DEFAULT_FINDER_DIRECTORY, "/tmp/stl")
         target = self.root / "fallback"
         with (
             patch("b4dcad.cli.DEFAULT_FINDER_DIRECTORY", str(target)),
             patch("b4dcad.cli.reveal_in_finder") as finder,
         ):
-            result = self.server.show_in_finder(**self.request_data("show_all"))
+            result = self.server.show_in_finder(**self.request_data())
         path = Path(result["path"])
-        self.assertEqual(path, target / "model" / "show_all.stl")
-        self.assertEqual(path.read_bytes(), self.server.stl_bytes("show_all"))
-        self.assertTrue((path.parent / "part.stl").is_file())
+        self.assertEqual(path, target / "model" / "part.stl")
+        self.assertEqual(path.read_bytes(), self.server.stl_bytes("part"))
+        self.assertFalse((path.parent / "show_all.stl").exists())
         finder.assert_called_once_with(path, "/usr/bin/open")
 
     def test_stale_or_unknown_part_is_rejected_before_export(self):
         valid = self.request_data()
         for changes in (
             {"name": "missing"},
+            {"name": "show_all"},
             {"name": []},
             {"source": "other.py"},
             {"tree_version": valid["tree_version"] + 1},
@@ -216,7 +221,7 @@ class ShowInFinderTest(unittest.TestCase):
                 with post() as response:
                     path = Path(json.load(response)["path"])
                 self.assertEqual(path.read_bytes(), self.server.stl_bytes("part"))
-                self.assertTrue((path.parent / "show_all.stl").is_file())
+                self.assertFalse((path.parent / "show_all.stl").exists())
                 finder.assert_called_once()
             with patch(
                 "b4dcad.cli.reveal_in_finder",

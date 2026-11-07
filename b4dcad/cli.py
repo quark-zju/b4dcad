@@ -400,6 +400,10 @@ class PreviewServer(ThreadingHTTPServer):
                     )
                 if not isinstance(name, str) or name not in self._stl_cache:
                     raise ValueError("Select an available model to reveal")
+                if name.startswith("show"):
+                    raise ValueError(
+                        "show* models are preview-only and cannot be exported"
+                    )
                 models = OrderedDict(self._stl_cache)
                 script = self.script
                 directory = self.write_stl or DEFAULT_FINDER_DIRECTORY

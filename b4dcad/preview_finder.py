@@ -29,6 +29,8 @@ def write_finder_exports(models, directory, script):
     directory.mkdir(parents=True, exist_ok=True)
     paths, used = {}, set()
     for name, data in models.items():
+        if name.startswith("show"):
+            continue
         stem = _filename_part(name)
         filename = f"{stem}.stl"
         suffix = 1

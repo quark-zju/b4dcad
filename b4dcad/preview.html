@@ -376,27 +376,23 @@
     let fileMenuRequest = 0;
     let canShowInFinder = false;
     let showingInFinder = false;
-    let finderFeedbackTimer = null;
 
     function updateFinderButton() {
-      finderButton.hidden = !canShowInFinder;
-      finderButton.disabled = !canShowInFinder || !activeName || selectingFile || showingInFinder;
+      finderButton.hidden = !canShowInFinder || activeName?.startsWith("show") === true;
+      finderButton.disabled = finderButton.hidden || !activeName || selectingFile || showingInFinder;
     }
 
     function resetFinderFeedback() {
-      clearTimeout(finderFeedbackTimer);
-      finderButton.textContent = "Show in Finder";
-      finderButton.title = "Export all models and reveal the selected part in Finder";
+      finderButton.title = "Export non-show models and reveal the selected part in Finder";
     }
 
     async function showInFinder() {
-      if (!canShowInFinder || !activeName || selectingFile || showingInFinder) return;
+      if (!canShowInFinder || !activeName || activeName.startsWith("show") || selectingFile || showingInFinder) return;
       const name = activeName;
       const source = activeSource;
       const version = treeVersion;
       showingInFinder = true;
       resetFinderFeedback();
-      finderButton.textContent = "Exporting…";
       updateFinderButton();
       try {
         const response = await fetch("/show-in-finder", {
@@ -407,9 +403,7 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         if (source === activeSource && name === activeName && version === treeVersion) {
-          finderButton.textContent = "Shown in Finder";
           finderButton.title = result.path;
-          finderFeedbackTimer = setTimeout(resetFinderFeedback, 2000);
         }
       } catch (error) {
         if (source === activeSource && name === activeName && version === treeVersion) {
@@ -418,7 +412,6 @@
         }
       } finally {
         showingInFinder = false;
-        if (finderButton.textContent === "Exporting…") resetFinderFeedback();
         updateFinderButton();
       }
     }
