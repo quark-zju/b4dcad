@@ -81,7 +81,7 @@ b4dcad preview path/to/model.py
 有多个组件时页面顶部可切换。支持实体/线框/半透明显示，右下角会显示当前零件的 X/Y/Z 外形尺寸（mm）。
 
 macOS 且后端可用 `osascript` 时，顶部会显示 **Copy Model**。
-点击后先将顶部选中的模型写成 STL，再通过 Finder 将文件放入剪贴板，可直接粘贴文件。
+点击后先将顶部选中的模型写成 STL，再写入 Finder 兼容的文件 URL 和旧式文件路径列表，供切片软件粘贴导入。
 输出目录复用 `--write-stl`，未指定时使用 `/tmp/stl/`，文件名为 `脚本名-模型名.stl`。
 其他系统不显示复制按钮。路径作为 AppleScript 参数传递，不拼接进脚本源码或 shell 命令。
 

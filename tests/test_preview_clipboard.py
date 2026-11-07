@@ -1,12 +1,15 @@
 import json
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from urllib.parse import unquote, urlparse
 
 from b4dcad.cli import PreviewHandler, PreviewServer
 from b4dcad.preview_clipboard import (
@@ -19,6 +22,73 @@ from b4dcad.preview_clipboard import (
 
 
 class FinderClipboardTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "Requires macOS AppKit")
+    def test_native_file_url_and_legacy_file_list_round_trip(self):
+        # Use private pasteboards exclusively: never overwrite the user's clipboard.
+        preflight = """ObjC.import("AppKit");
+var board = $.NSPasteboard.pasteboardWithUniqueName;
+var available = false;
+try { available = board.setStringForType("probe", "public.utf8-plain-text"); }
+finally { board.releaseGlobally; }
+available ? "available" : "unavailable";
+"""
+        available = subprocess.run(
+            ["/usr/bin/osascript", "-l", "JavaScript", "-"],
+            input=preflight,
+            text=True,
+            capture_output=True,
+            timeout=15,
+        )
+        if available.returncode or available.stdout.strip() != "available":
+            self.skipTest(
+                "macOS pasteboard service is unavailable (for example, in a sandbox)"
+            )
+        self.assertEqual(FINDER_COPY_SCRIPT.count("generalPasteboard()"), 1)
+        script = FINDER_COPY_SCRIPT.replace(
+            "generalPasteboard()", "pasteboardWithName:(item 2 of argv)"
+        )
+        name = "b4dcad.tests." + uuid.uuid4().hex
+        readback = """ObjC.import("AppKit");
+function run(argv) {
+    var board = $.NSPasteboard.pasteboardWithName(argv[0]);
+    try {
+        return JSON.stringify({
+            types: ObjC.deepUnwrap(board.types),
+            url: ObjC.unwrap(board.stringForType("public.file-url")),
+            paths: ObjC.deepUnwrap(board.propertyListForType("NSFilenamesPboardType"))
+        });
+    } finally { board.releaseGlobally; }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'quote " \\\n模型 #%.stl'
+            path.write_bytes(b"test file")
+            try:
+                subprocess.run(
+                    ["/usr/bin/osascript", "-", str(path), name],
+                    input=script,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                )
+            finally:
+                result = subprocess.run(
+                    ["/usr/bin/osascript", "-l", "JavaScript", "-", name],
+                    input=readback,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                )
+            data = json.loads(result.stdout)
+            self.assertIn("public.file-url", data["types"])
+            self.assertIn("NSFilenamesPboardType", data["types"])
+            url = urlparse(data["url"])
+            self.assertEqual(url.scheme, "file")
+            self.assertEqual(unquote(url.path), str(path))
+            self.assertEqual(data["paths"], [str(path)])
+
     def test_platform_and_executable_determine_support(self):
         for platform, executable, supported in (
             ("darwin", True, True),

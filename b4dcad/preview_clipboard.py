@@ -1,4 +1,4 @@
-"""Export preview files and copy their file references through Finder."""
+"""Export preview files and publish Finder-compatible file clipboard data."""
 
 import os
 import subprocess
@@ -7,11 +7,18 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_COPY_DIRECTORY = "/tmp/stl"
-FINDER_COPY_SCRIPT = """on run argv
-    set modelFile to (POSIX file (item 1 of argv)) as alias
-    tell application "Finder"
-        set the clipboard to modelFile
-    end tell
+FINDER_COPY_SCRIPT = """use framework "AppKit"
+use scripting additions
+
+on run argv
+    set filePath to item 1 of argv
+    set fileURL to current application's NSURL's fileURLWithPath:filePath
+    set pasteboard to current application's NSPasteboard's generalPasteboard()
+    pasteboard's clearContents()
+    set wroteURL to pasteboard's writeObjects:{fileURL}
+    if not (wroteURL as boolean) then error "Could not copy the model file URL"
+    set wrotePaths to pasteboard's setPropertyList:{filePath} forType:"NSFilenamesPboardType"
+    if not (wrotePaths as boolean) then error "Could not copy the model file list"
 end run
 """
 
@@ -61,7 +68,7 @@ def copy_file_to_finder(path, command):
         )
     except subprocess.CalledProcessError as error:
         raise RuntimeError(
-            error.stderr.strip() or "Finder could not copy the file"
+            (error.stderr or "").strip() or "Could not copy the model file"
         ) from error
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("Finder copy timed out") from error
