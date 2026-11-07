@@ -17,7 +17,7 @@ class PreviewHtmlTest(unittest.TestCase):
         html = load_preview_html()
 
         self.assertIn('id="dimensions"', html)
-        self.assertIn("function updateDimensions(box)", html)
+        self.assertIn("function updateDimensions(box, geometry = currentGeometry", html)
         self.assertIn("updateDimensions(box);", html)
         self.assertIn("right: 12px;", html)
         self.assertIn("bottom: 12px;", html)

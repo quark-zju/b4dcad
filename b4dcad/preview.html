@@ -129,6 +129,37 @@
     .dimension-axis {
       font-weight: 700;
     }
+    #tree-panel {
+      position: fixed;
+      left: 12px;
+      top: 64px;
+      bottom: 72px;
+      width: min(320px, calc(100vw - 48px));
+      z-index: 1;
+      overflow: auto;
+      background: rgba(255,255,255,.94);
+      border: 1px solid #ccc;
+      padding: 10px;
+      font: 12px system-ui, sans-serif;
+    }
+    #tree-panel[hidden] { display: none; }
+    #tree-panel ul { list-style: none; margin: 4px 0; padding-left: 16px; }
+    #tree-panel button {
+      font: inherit;
+      color: #222;
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 3px 5px;
+      text-align: left;
+      cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+    #tree-panel button[aria-pressed="true"] {
+      background: #d8f3ff;
+      border-color: #64b8d4;
+    }
+    #tree-panel summary { cursor: pointer; }
+    #tree-panel p { color: #666; }
   </style>
   <script type="importmap">
     {
@@ -145,6 +176,7 @@
     <span id="components" class="button-group"></span>
     <span id="tools">
       <button type="button" id="reset-view">Reset View</button>
+      <button type="button" id="toggle-tree" aria-expanded="false" aria-controls="tree-panel">Tree</button>
       <span id="view-modes" class="button-group">
         <span class="solid-control">
           <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
@@ -158,6 +190,10 @@
   </nav>
   <pre id="error-panel" hidden></pre>
   <output id="dimensions" aria-live="polite" hidden></output>
+  <aside id="tree-panel" aria-label="Model construction tree" hidden>
+    <button type="button" id="clear-selection">Clear selection</button>
+    <div id="tree-content"></div>
+  </aside>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -173,6 +209,9 @@
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
     const aoButton = document.querySelector("#toggle-ao");
+    const treeButton = document.querySelector("#toggle-tree");
+    const treePanel = document.querySelector("#tree-panel");
+    const treeContent = document.querySelector("#tree-content");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const dimensions = document.querySelector("#dimensions");
     const showError = (message) => {
@@ -194,6 +233,7 @@
     };
 
     const scene = new THREE.Scene();
+    const highlightScene = new THREE.Scene();
     scene.background = new THREE.Color(0xf4f4f0);
     const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 10000);
     camera.up.set(0, 0, 1);
@@ -266,6 +306,12 @@
     let viewMode = "solid";
     let aoEnabled = true;
     let framePending = false;
+    let treeData = { nodes: {}, roots: {}, assignments: [] };
+    let treeVersion = null;
+    let selectedNode = null;
+    let highlight = null;
+    let selectionRequest = 0;
+    let modelRequest = 0;
 
     function requestRender() {
       if (framePending) return;
@@ -279,21 +325,150 @@
     function renderPreview() {
       if (!aoEnabled || viewMode !== "solid" || !mesh) {
         renderer.render(scene, camera);
-        return;
+      } else {
+        // SSAOPass r164 caches camera uniforms; refresh after clipping or aspect changes.
+        const uniforms = aoPass.ssaoMaterial.uniforms;
+        uniforms.cameraNear.value = camera.near;
+        uniforms.cameraFar.value = camera.far;
+        uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix);
+        uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
+        aoPass.kernelRadius = modelSize * 0.04;
+        const depthScale = modelSize / (camera.far - camera.near);
+        aoPass.minDistance = depthScale * 0.001;
+        aoPass.maxDistance = depthScale * 0.08;
+        composer.render();
       }
+      if (highlight) {
+        // Draw selection separately so it cannot alter the model's AO depth/normal buffers.
+        renderer.autoClear = false;
+        renderer.render(highlightScene, camera);
+        renderer.autoClear = true;
+      }
+    }
 
-      // SSAOPass r164 caches camera uniforms; refresh them after clipping or aspect changes.
-      const uniforms = aoPass.ssaoMaterial.uniforms;
-      uniforms.cameraNear.value = camera.near;
-      uniforms.cameraFar.value = camera.far;
-      uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix);
-      uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
-      aoPass.kernelRadius = modelSize * 0.04;
-      // The shader compares linear depths normalized to the camera clipping range.
-      const depthScale = modelSize / (camera.far - camera.near);
-      aoPass.minDistance = depthScale * 0.001;
-      aoPass.maxDistance = depthScale * 0.08;
-      composer.render();
+    function clearSelection() {
+      selectionRequest++;
+      selectedNode = null;
+      if (highlight) {
+        highlightScene.remove(highlight);
+        highlight.geometry.dispose();
+        highlight.material.dispose();
+        highlight = null;
+      }
+      for (const button of treeContent.querySelectorAll("[data-node]")) {
+        button.setAttribute("aria-pressed", "false");
+      }
+      if (currentGeometry) updateDimensions(new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position));
+      requestRender();
+    }
+
+    function selectNode(key) {
+      if (!treeData.nodes[key]) return;
+      clearSelection();
+      selectedNode = key;
+      const request = selectionRequest;
+      for (const button of treeContent.querySelectorAll("[data-node]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.node === key));
+      }
+      loader.load(`/tree/${treeVersion}/${encodeURIComponent(key)}.stl`, (geometry) => {
+        if (request !== selectionRequest) {
+          geometry.dispose();
+          return;
+        }
+        if (geometry.attributes.position.count === 0) {
+          geometry.dispose();
+          dimensions.textContent = "Selected shape is empty · 0 × 0 × 0 mm";
+          dimensions.hidden = false;
+          requestRender();
+          return;
+        }
+        const material = new THREE.MeshBasicMaterial({ color: 0x21b9ec, transparent: true, opacity: 0.65, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+        highlight = new THREE.Mesh(geometry, material);
+        highlightScene.add(highlight);
+        updateDimensions(new THREE.Box3().setFromBufferAttribute(geometry.attributes.position), geometry, treeData.nodes[key].names.join(" / "));
+        requestRender();
+      }, undefined, (error) => {
+        if (request === selectionRequest) {
+          clearSelection();
+          showError(`Failed to load selection: ${error.message || error}`);
+        }
+      });
+    }
+
+    function nodeButton(key, label) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.node = key;
+      button.textContent = label;
+      button.setAttribute("aria-pressed", String(selectedNode === key));
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNode(key);
+      });
+      return button;
+    }
+
+    function treeNode(key) {
+      const node = treeData.nodes[key];
+      const item = document.createElement("li");
+      const button = nodeButton(key, `${node.names.join(" / ")}${node.operation === "+" ? " (+)" : ""}`);
+      if (!node.children.length) {
+        item.append(button);
+        return item;
+      }
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.append(button);
+      details.append(summary);
+      let built = false;
+      details.addEventListener("toggle", () => {
+        if (!details.isConnected || !details.open || built) return;
+        built = true;
+        const list = document.createElement("ul");
+        for (const child of node.children) list.append(treeNode(child));
+        details.append(list);
+      });
+      item.append(details);
+      return item;
+    }
+
+    function rebuildTree() {
+      positionTreePanel();
+      treeContent.replaceChildren();
+      const root = treeData.roots[activeName];
+      if (root && treeData.nodes[root]) {
+        const list = document.createElement("ul");
+        const item = treeNode(root);
+        list.append(item);
+        treeContent.append(list);
+        const details = item.querySelector("details");
+        if (details) details.open = true;
+      } else {
+        const message = document.createElement("p");
+        message.textContent = "No recorded Solid tree for this model.";
+        treeContent.append(message);
+      }
+      const history = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = `Assignment history (${treeData.assignments.length})`;
+      history.append(summary);
+      history.addEventListener("toggle", () => {
+        if (!history.isConnected || !history.open || history.childElementCount > 1) return;
+        const list = document.createElement("ul");
+        for (const assignment of treeData.assignments) {
+          const item = document.createElement("li");
+          const filename = assignment.file.split(/[\\/]/).pop();
+          item.append(nodeButton(assignment.node, `${assignment.name} · ${filename}:${assignment.line} · ${assignment.scope}`));
+          list.append(item);
+        }
+        history.append(list);
+      });
+      treeContent.append(history);
+    }
+
+    function positionTreePanel() {
+      treePanel.style.top = `${document.querySelector("#bar").getBoundingClientRect().bottom + 8}px`;
     }
 
     function materialForMode() {
@@ -409,7 +584,7 @@
       return Math.abs(signedVolume);
     }
 
-    function updateDimensions(box) {
+    function updateDimensions(box, geometry = currentGeometry, label = null) {
       const size = box.getSize(new THREE.Vector3());
       dimensions.replaceChildren(
         dimensionFragment("x", size.x),
@@ -419,18 +594,30 @@
         dimensionFragment("z", size.z),
         " mm",
       );
+      if (label) {
+        const name = document.createElement("div");
+        name.textContent = label;
+        dimensions.prepend(name);
+      }
       const volume = document.createElement("div");
-      volume.textContent = `Volume ≈ ${formatDimension(estimateVolume(currentGeometry, box.getCenter(new THREE.Vector3())))} mm³`;
+      volume.textContent = `Volume ≈ ${formatDimension(estimateVolume(geometry, box.getCenter(new THREE.Vector3())))} mm³`;
       dimensions.append(volume);
       dimensions.hidden = false;
     }
 
     function loadModel(name, options = {}) {
+      clearSelection();
+      const request = ++modelRequest;
       const resetCamera = options.resetCamera !== false;
       activeName = name;
       setActiveButton(name);
+      rebuildTree();
       const url = `/model/${encodeURIComponent(name)}.stl?ts=${Date.now()}`;
       loader.load(url, (geometry) => {
+        if (request !== modelRequest) {
+          geometry.dispose();
+          return;
+        }
         geometry = mergeVertices(geometry, 1e-5);
         geometry.computeVertexNormals();
         removeObject(mesh, false);
@@ -440,7 +627,7 @@
         rebuildModelDisplay();
 
         const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
-        updateDimensions(box);
+        if (!selectedNode) updateDimensions(box);
         modelSize = box.getSize(new THREE.Vector3()).length();
         modelCenter = box.getCenter(new THREE.Vector3());
         modelExtentFromOrigin = Math.max(
@@ -467,6 +654,9 @@
       const response = await fetch(`/state.json?ts=${Date.now()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const state = await response.json();
+      clearSelection();
+      treeData = state.tree || { nodes: {}, roots: {}, assignments: [] };
+      treeVersion = state.tree_version;
       const models = state.models || [];
       if (state.error) {
         showBuildError(state.error);
@@ -505,6 +695,13 @@
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
     resetViewButton.addEventListener("click", resetView);
+    treeButton.addEventListener("click", () => {
+      treePanel.hidden = !treePanel.hidden;
+      treeButton.setAttribute("aria-expanded", String(!treePanel.hidden));
+      positionTreePanel();
+      if (treePanel.hidden) clearSelection();
+    });
+    document.querySelector("#clear-selection").addEventListener("click", clearSelection);
     aoButton.addEventListener("click", () => {
       aoEnabled = !aoEnabled;
       aoButton.setAttribute("aria-pressed", String(aoEnabled));
@@ -525,6 +722,7 @@
       camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
       composer.setSize(innerWidth, innerHeight);
+      positionTreePanel();
       requestRender();
     });
 

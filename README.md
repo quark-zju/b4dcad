@@ -79,6 +79,21 @@ b4dcad preview path/to/model.py
 
 保存主模型或它从同目录导入的 `.py` 文件后，浏览器会自动刷新。
 
+点击顶部 **Tree** 可展开模型构建树。预览执行时会记录主脚本及同目录模块中
+`Solid` / `Manifold` 变量的赋值（包含函数内局部变量和被覆盖的旧值）；
+**Assignment history** 中可以查看变量名、作用域和赋值位置。
+树的组合关系仅记录 b4dcad `Solid` 的 `+` 运算，跳过匿名对象：
+`o = a + b + c` 显示为 `o` 下并列的 `a、b、c`；
+`ab = a + b; o = ab + c` 则保留 `ab` 这一层。
+点击节点会以蓝色高亮记录时的形状，并在右下角显示其尺寸和体积；
+点击 **Clear selection** 或关闭树面板恢复整体尺寸。
+
+这是一份执行历史，不是从最终网格反推的零件结构。
+其他运算（包括变换、差集以及直接调用原生 Manifold 运算）的结果作为独立形状，
+不追溯其输入；未绑定变量名的形状不单独显示。
+记录仅用于预览，STL 导出不启用 trace；中间形状的 STL 在点选时才生成。
+可以运行 `b4dcad preview examples/tree_preview.py` 试用具名子组件与匿名组合的显示效果。
+
 在 `b4dcad preview` 或 `b4dcad stl` 执行的主模型脚本中，
 `b4dcad.is_rendering()` 返回 `True`；普通运行或被其他脚本 import 时返回 `False`。
 被主模型脚本 import 的模块调用它也会返回 `False`。

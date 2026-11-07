@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlparse
 
 from .core import Shape, Solid
 from .rendering import _RENDERING_MARKER
+from .preview_trace import PreviewTrace
 
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
@@ -172,6 +173,15 @@ def build_preview_cache(script, name=None, run_name=None):
     )
 
 
+def build_preview_scene(script, name=None, run_name=None):
+    with PreviewTrace(script) as trace:
+        models = preview_models(script, name, run_name=run_name)
+    cache = OrderedDict(
+        (model_name, model_stl_bytes(model)) for model_name, model in models.items()
+    )
+    return cache, trace, trace.data(models)
+
+
 def write_cached_stls(script, directory, cache):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -291,6 +301,10 @@ class PreviewServer(ThreadingHTTPServer):
     ):
         self._cache_lock = threading.RLock()
         self._stl_cache = OrderedDict()
+        self._trace = None
+        self._tree = {"nodes": {}, "roots": {}, "assignments": []}
+        self._tree_stls = {}
+        self._tree_version = 0
         self._error = None
         self._change = threading.Condition()
         self._stop_watcher = threading.Event()
@@ -308,8 +322,8 @@ class PreviewServer(ThreadingHTTPServer):
 
     def rebuild_cache(self, write_files=False):
         try:
-            cache = self._module_tracker.execute(
-                lambda run_name: build_preview_cache(
+            cache, trace, tree = self._module_tracker.execute(
+                lambda run_name: build_preview_scene(
                     self.script, self.object_name, run_name=run_name
                 )
             )
@@ -325,6 +339,10 @@ class PreviewServer(ThreadingHTTPServer):
 
         with self._cache_lock:
             self._stl_cache = cache
+            self._trace = trace
+            self._tree = tree
+            self._tree_stls = {}
+            self._tree_version += 1
             self._error = None
         if write_files and self.write_stl:
             write_cached_stls(self.script, self.write_stl, cache)
@@ -340,6 +358,8 @@ class PreviewServer(ThreadingHTTPServer):
                 "version": self.version,
                 "models": list(self._stl_cache.keys()),
                 "error": self._error,
+                "tree": self._tree,
+                "tree_version": self._tree_version,
             }
 
     def stl_bytes(self, name=None):
@@ -349,6 +369,19 @@ class PreviewServer(ThreadingHTTPServer):
             if name not in self._stl_cache:
                 return None
             return self._stl_cache[name]
+
+    def tree_stl_bytes(self, version, key):
+        with self._cache_lock:
+            if version != self._tree_version or self._trace is None:
+                return None
+            if key not in self._tree["nodes"]:
+                return None
+            if key not in self._tree_stls:
+                data = self._trace.stl_bytes(key)
+                if data is None:
+                    return None
+                self._tree_stls[key] = data
+            return self._tree_stls[key]
 
     def _watch(self):
         while not self._stop_watcher.wait(self.poll_interval):
@@ -424,6 +457,17 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         if path == "/models.json":
             self._send_models()
             return
+        if path.startswith("/tree/") and path.endswith(".stl"):
+            parts = path.split("/")
+            if len(parts) != 4 or not parts[2].isdigit():
+                self.send_error(404)
+                return
+            data = self.server.tree_stl_bytes(int(parts[2]), parts[3][:-4])
+            if data is None:
+                self.send_error(404, "Unknown or outdated tree node")
+            else:
+                self._send_stl_data(data)
+            return
         if path == "/model.stl":
             self._send_stl(None)
             return
@@ -490,6 +534,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         if data is None:
             self.send_error(404, f"Unknown model {name!r}")
             return
+        self._send_stl_data(data)
+
+    def _send_stl_data(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "model/stl")
         self.send_header("Cache-Control", "no-store")
