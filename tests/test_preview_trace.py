@@ -120,6 +120,36 @@ class PreviewTraceTest(unittest.TestCase):
                 raise RuntimeError("failed")
         self.assertIs(sys.gettrace(), previous)
 
+    def test_function_returns_and_postprocessing_keep_named_sources(self):
+        _, trace, tree = self.build(
+            "def make():\n"
+            "    a = box(1, 2, 3)\n"
+            "    b = box(2, 3, 4).move(x=5)\n"
+            "    part = a + b\n"
+            "    return part.as_original().simplify(0.0001).as_original()\n"
+            "result = make().rotate(z=90).move(x=20).align(zmin=0)\n"
+        )
+        roots, nodes = tree["roots"], tree["nodes"]
+        part = next(
+            event["node"] for event in tree["assignments"] if event["name"] == "part"
+        )
+        self.assertEqual(nodes[roots["result"]]["children"], [part])
+        self.assertEqual(
+            [nodes[key]["names"] for key in nodes[part]["children"]], [["a"], ["b"]]
+        )
+        self.assertNotEqual(trace.stl_bytes(roots["result"]), trace.stl_bytes(part))
+
+    def test_edits_keep_left_source_without_expanding_cutters(self):
+        _, _, tree = self.build(
+            "a = box(3, 3, 3)\nb = box(1, 1, 1).move(x=5)\n"
+            "cutter = box(1, 1, 1)\npart = a + b\n"
+            "cut = part - cutter\nresult = cut & a\n"
+        )
+        roots, nodes = tree["roots"], tree["nodes"]
+        self.assertEqual(nodes[roots["result"]]["children"], [roots["cut"]])
+        self.assertEqual(nodes[roots["cut"]]["children"], [roots["part"]])
+        self.assertEqual(nodes[roots["part"]]["children"], [roots["a"], roots["b"]])
+
     def test_http_tree_geometry_and_failed_rebuild(self):
         self.script.write_text(
             "from b4dcad import box\na = box(1, 2, 3)\n"

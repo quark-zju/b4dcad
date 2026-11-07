@@ -19,6 +19,11 @@ class PreviewTrace:
         self._ids = {}
         self._instructions = {}
         self._files = {}
+        self._solid_methods = {
+            method.__code__
+            for method in vars(Solid).values()
+            if hasattr(method, "__code__")
+        }
 
     def node(self, value):
         if not isinstance(value, (Solid, Manifold)):
@@ -63,6 +68,29 @@ class PreviewTrace:
 
             frame.f_trace_lines = False
             return union_return
+
+        if frame.f_code in self._solid_methods:
+            source = frame.f_locals.get("self")
+
+            def method_return(frame, event, result):
+                if (
+                    event == "return"
+                    and isinstance(source, Solid)
+                    and isinstance(result, Solid)
+                    and result is not source
+                ):
+                    key = self.node(result)
+                    # A wrapper such as align() may return a result already traced
+                    # inside move(). Preserve that more direct origin.
+                    if self.nodes[key]["operation"] == "shape":
+                        self.nodes[key].update(
+                            operation=frame.f_code.co_name,
+                            children=[self.node(source)],
+                        )
+                return method_return
+
+            frame.f_trace_lines = False
+            return method_return
 
         if not self._user_file(frame.f_code.co_filename):
             return None
