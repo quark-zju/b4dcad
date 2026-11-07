@@ -112,6 +112,29 @@
       font-weight: 600;
       margin-right: 6px;
     }
+    #source-name::after { content: " ▾"; font-size: 10px; }
+    #source-name[aria-busy="true"]::after { content: " …"; }
+    #source-picker { position: relative; min-width: 0; }
+    #file-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      width: min(420px, calc(100vw - 24px));
+      max-height: min(560px, 70vh);
+      overflow: auto;
+      box-sizing: border-box;
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #ccc;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      z-index: 3;
+    }
+    #file-menu[hidden] { display: none; }
+    #file-root { font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
+    #file-menu ul { list-style: none; margin: 3px 0; padding-left: 14px; }
+    #file-menu summary { padding: 4px 0; cursor: pointer; overflow-wrap: anywhere; }
+    #bar #file-menu button { border-color: transparent; padding: 4px 6px; text-align: left; overflow-wrap: anywhere; }
+    #bar #file-menu button[aria-current="page"] { background: #d8f3ff; border-color: #64b8d4; }
     #dimensions {
       position: absolute;
       right: 12px;
@@ -176,7 +199,13 @@
 </head>
 <body>
   <nav id="bar" aria-label="Components">
-    <span id="source-name">__SOURCE_NAME__</span>
+    <div id="source-picker">
+      <button type="button" id="source-name" aria-expanded="false" aria-controls="file-menu">__SOURCE_NAME__</button>
+      <section id="file-menu" aria-label="Python source files" hidden>
+        <div id="file-root"></div>
+        <div id="file-tree"></div>
+      </section>
+    </div>
     <span id="components" class="button-group"></span>
     <span id="tools">
       <button type="button" id="reset-view">Reset View</button>
@@ -222,6 +251,10 @@
     import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
     const components = document.querySelector("#components");
+    const sourcePicker = document.querySelector("#source-picker");
+    const sourceButton = document.querySelector("#source-name");
+    const fileMenu = document.querySelector("#file-menu");
+    const fileTree = document.querySelector("#file-tree");
     const status = document.querySelector("#status");
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
@@ -336,6 +369,94 @@
     let selectionRequest = 0;
     let modelRequest = 0;
     let assignmentsByNode = new Map();
+    let activeSource = null;
+    let selectingFile = false;
+    let fileMenuRequest = 0;
+
+    function closeFileMenu() {
+      fileMenuRequest++;
+      fileMenu.hidden = true;
+      sourceButton.setAttribute("aria-expanded", "false");
+    }
+
+    function fileTreeNode(entry, selected) {
+      const item = document.createElement("li");
+      if (!entry.children) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = entry.name;
+        button.title = entry.path;
+        button.setAttribute("aria-current", entry.path === selected ? "page" : "false");
+        button.addEventListener("click", () => selectFile(entry.path));
+        item.append(button);
+        return item;
+      }
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = entry.name;
+      details.append(summary);
+      let built = false;
+      details.addEventListener("toggle", () => {
+        if (!details.isConnected || !details.open || built) return;
+        built = true;
+        const list = document.createElement("ul");
+        for (const child of entry.children) list.append(fileTreeNode(child, selected));
+        details.append(list);
+      });
+      details.open = selected.startsWith(`${entry.path}/`);
+      item.append(details);
+      return item;
+    }
+
+    async function openFileMenu() {
+      fileMenu.hidden = false;
+      sourceButton.setAttribute("aria-expanded", "true");
+      const request = ++fileMenuRequest;
+      fileTree.textContent = "Loading…";
+      try {
+        const response = await fetch("/files.json");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (request !== fileMenuRequest || fileMenu.hidden) return;
+        document.querySelector("#file-root").textContent = data.root;
+        const list = document.createElement("ul");
+        for (const entry of data.files) list.append(fileTreeNode(entry, data.selected));
+        fileTree.replaceChildren(list);
+      } catch (error) {
+        if (request === fileMenuRequest) fileTree.textContent = `Failed to list files: ${error.message || error}`;
+      }
+    }
+
+    async function selectFile(path) {
+      if (selectingFile) return;
+      closeFileMenu();
+      if (path === activeSource) return;
+      selectingFile = true;
+      sourceButton.disabled = true;
+      sourceButton.setAttribute("aria-busy", "true");
+      // Serialize file changes with live reloads so older state cannot replace a new file.
+      const task = modelListRefresh.catch(() => {}).then(async () => {
+        modelRequest++;
+        clearSelection();
+        const response = await fetch("/select-file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        applyPreviewState(await response.json());
+      });
+      modelListRefresh = task.catch(() => {});
+      try {
+        await task;
+      } catch (error) {
+        showError(`Failed to switch file: ${error.message || error}`);
+      } finally {
+        selectingFile = false;
+        sourceButton.disabled = false;
+        sourceButton.removeAttribute("aria-busy");
+      }
+    }
 
     function requestRender() {
       if (framePending) return;
@@ -676,6 +797,7 @@
           Math.abs(box.min.z), Math.abs(box.max.z),
         );
         drawAxes(axisLengthForModel());
+        axes.visible = true;
         if (resetCamera) {
           resetView();
         } else {
@@ -683,17 +805,46 @@
           controls.update();
         }
         requestRender();
-      }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
+      }, undefined, (error) => {
+        if (request === modelRequest) showError(`Failed to load ${name}: ${error.message || error}`);
+      });
     }
 
     let modelListRefresh = Promise.resolve();
 
     async function loadModelList(options = {}) {
-      const preserveView = options.preserveView === true;
-      const previousActiveName = activeName;
       const response = await fetch(`/state.json?ts=${Date.now()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const state = await response.json();
+      applyPreviewState(await response.json(), options);
+    }
+
+    function clearModel() {
+      modelRequest++;
+      clearSelection();
+      removeObject(mesh, false);
+      removeObject(edgeLines);
+      if (currentGeometry) currentGeometry.dispose();
+      mesh = null;
+      edgeLines = null;
+      currentGeometry = null;
+      activeName = null;
+      axes.visible = false;
+      dimensions.hidden = true;
+      requestRender();
+    }
+
+    function applyPreviewState(state, options = {}) {
+      const sourceChanged = state.source !== activeSource;
+      const preserveView = options.preserveView === true && !sourceChanged;
+      const previousActiveName = sourceChanged ? null : activeName;
+      if (sourceChanged) {
+        clearModel();
+        closeFileMenu();
+      }
+      activeSource = state.source;
+      sourceButton.textContent = state.source.split("/").pop();
+      sourceButton.title = state.source;
+      document.title = sourceButton.textContent;
       clearSelection();
       treeData = state.tree || { nodes: {}, roots: {}, assignments: [] };
       treeVersion = state.tree_version;
@@ -713,6 +864,8 @@
         components.append(button);
       }
       if (models.length === 0) {
+        clearModel();
+        rebuildTree();
         if (!state.error) {
           showError("No public b4dcad Solid or CadQuery Workplane variables found");
         }
@@ -732,9 +885,22 @@
       return modelListRefresh;
     }
 
-    loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
+    refreshModelList();
 
     resetViewButton.addEventListener("click", resetView);
+    sourceButton.addEventListener("click", () => {
+      if (fileMenu.hidden) openFileMenu();
+      else closeFileMenu();
+    });
+    document.addEventListener("click", (event) => {
+      if (!sourcePicker.contains(event.target)) closeFileMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !fileMenu.hidden) {
+        closeFileMenu();
+        sourceButton.focus();
+      }
+    });
     treeButton.addEventListener("click", () => {
       treePanel.hidden = !treePanel.hidden;
       treeButton.setAttribute("aria-expanded", String(!treePanel.hidden));
