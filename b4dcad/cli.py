@@ -1,4 +1,5 @@
 import argparse
+import errno
 import importlib
 import importlib.resources
 import importlib.util
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import threading
 import traceback
+import webbrowser
 from collections import OrderedDict
 from html import escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +24,8 @@ from .preview_files import PreviewFiles
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
 CADQUERY_STL_TOLERANCE = 0.05
+DEFAULT_PREVIEW_PORT = 8765
+PREVIEW_PORT_ATTEMPTS = 32
 
 
 def load_preview_html():
@@ -624,10 +628,7 @@ def stl_command(argv=None):
     export_stls(args.script, args.directory, args.object_name)
 
 
-def preview_command(argv=None):
-    parser = argparse.ArgumentParser(
-        description="Serve a browser STL preview for a Python CAD model."
-    )
+def _add_preview_arguments(parser):
     parser.add_argument(
         "script",
         help="Python script defining public b4dcad Solid or CadQuery Workplane variables",
@@ -636,22 +637,83 @@ def preview_command(argv=None):
         "--object", dest="object_name", help="Object or function name to preview"
     )
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--port",
+        type=int,
+        help="Explicit port; otherwise try 32 ports starting at 8765",
+    )
+    parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
     parser.add_argument(
         "--write-stl", dest="write_stl", help="Directory to write STL files"
     )
-    args = parser.parse_args(argv)
 
+
+def _create_preview_server(args):
     script = str(Path(args.script).resolve())
-    server = PreviewServer(
-        (args.host, args.port),
-        PreviewHandler,
-        script,
-        object_name=args.object_name,
-        write_stl=args.write_stl,
+    ports = (
+        [args.port]
+        if args.port is not None
+        else range(DEFAULT_PREVIEW_PORT, DEFAULT_PREVIEW_PORT + PREVIEW_PORT_ATTEMPTS)
     )
-    print(f"Serving {script} at http://{args.host}:{args.port}")
-    server.serve_forever()
+    for port in ports:
+        try:
+            return PreviewServer(
+                (args.host, port),
+                PreviewHandler,
+                script,
+                object_name=args.object_name,
+                write_stl=args.write_stl,
+            )
+        except OSError as error:
+            if args.port is not None or error.errno != errno.EADDRINUSE:
+                raise
+            last_error = error
+    raise OSError(
+        errno.EADDRINUSE,
+        f"All {PREVIEW_PORT_ATTEMPTS} preview ports are in use "
+        f"({DEFAULT_PREVIEW_PORT}–{DEFAULT_PREVIEW_PORT + PREVIEW_PORT_ATTEMPTS - 1})",
+    ) from last_error
+
+
+def _open_preview_browser(url):
+    try:
+        if webbrowser.open(url):
+            return
+        reason = "no browser accepted the request"
+    except (webbrowser.Error, OSError) as error:
+        reason = str(error)
+    print(f"Could not open a browser ({reason}); open {url} manually.", flush=True)
+
+
+def _serve_preview(args):
+    server = _create_preview_server(args)
+    host = args.host
+    if host in ("", "0.0.0.0"):
+        host = "127.0.0.1"
+    elif host == "::":
+        host = "::1"
+    if ":" in host:
+        host = f"[{host}]"
+    url = f"http://{host}:{server.server_port}/"
+    try:
+        print(f"Serving {server.script} at {url}", flush=True)
+        if not args.no_open:
+            threading.Thread(
+                target=_open_preview_browser, args=(url,), daemon=True
+            ).start()
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+def preview_command(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Serve a browser STL preview for a Python CAD model."
+    )
+    _add_preview_arguments(parser)
+    _serve_preview(parser.parse_args(argv))
 
 
 def main(argv=None):
@@ -664,11 +726,7 @@ def main(argv=None):
     stl_parser.add_argument("--object", dest="object_name")
 
     preview_parser = subparsers.add_parser("preview", help="Serve a browser preview")
-    preview_parser.add_argument("script")
-    preview_parser.add_argument("--object", dest="object_name")
-    preview_parser.add_argument("--host", default="127.0.0.1")
-    preview_parser.add_argument("--port", type=int, default=8765)
-    preview_parser.add_argument("--write-stl", dest="write_stl")
+    _add_preview_arguments(preview_parser)
 
     # allow relative import
     sys.path.insert(0, ".")
@@ -677,16 +735,7 @@ def main(argv=None):
     if args.command == "stl":
         export_stls(args.script, args.directory, args.object_name)
     elif args.command == "preview":
-        script = str(Path(args.script).resolve())
-        server = PreviewServer(
-            (args.host, args.port),
-            PreviewHandler,
-            script,
-            object_name=args.object_name,
-            write_stl=args.write_stl,
-        )
-        print(f"Serving {script} at http://{args.host}:{args.port}")
-        server.serve_forever()
+        _serve_preview(args)
 
 
 if __name__ == "__main__":
