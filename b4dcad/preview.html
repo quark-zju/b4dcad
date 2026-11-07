@@ -214,7 +214,7 @@
       <span id="view-modes" class="button-group">
         <span class="solid-control">
           <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
-          <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="true" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
+          <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
         </span>
         <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
         <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
@@ -362,7 +362,7 @@
     let modelCenter = new THREE.Vector3(0, 0, 0);
     let modelExtentFromOrigin = 1;
     let viewMode = "solid";
-    let aoEnabled = true;
+    let aoEnabled = false;
     let framePending = false;
     let treeData = { nodes: {}, roots: {}, assignments: [] };
     let treeVersion = null;
