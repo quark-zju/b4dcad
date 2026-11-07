@@ -215,7 +215,8 @@
       if (viewMode === "transparent") {
         return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, transparent: true, opacity: 0.34, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
       }
-      return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05 });
+      // Push the solid surface back slightly so its feature edges do not flicker.
+      return new THREE.MeshStandardMaterial({ color: 0xb8aa2e, roughness: 0.48, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     }
 
     function removeObject(object, disposeGeometry = true) {
@@ -232,12 +233,14 @@
       edgeLines = null;
       if (!currentGeometry) return;
 
-      if (viewMode === "wireframe") {
-        const edges = new THREE.EdgesGeometry(currentGeometry, 1);
-        const material = new THREE.LineBasicMaterial({ color: 0x756c1d });
+      if (viewMode === "solid" || viewMode === "wireframe") {
+        const solid = viewMode === "solid";
+        // Suppress small tessellation edges on curved surfaces in solid mode.
+        const edges = new THREE.EdgesGeometry(currentGeometry, solid ? 20 : 1);
+        const material = new THREE.LineBasicMaterial({ color: 0x756c1d, depthTest: true, transparent: solid, opacity: solid ? 0.55 : 1, depthWrite: !solid });
         edgeLines = new THREE.LineSegments(edges, material);
         scene.add(edgeLines);
-        return;
+        if (!solid) return;
       }
 
       mesh = new THREE.Mesh(currentGeometry, materialForMode());
