@@ -258,8 +258,8 @@
     }
 
     function updateAOResolution() {
-      // Only AO is downsampled; the model and feature edges retain full resolution.
-      const scale = interacting ? 0.25 : 0.5;
+      // Downsample only AO during interaction; restore native resolution afterward.
+      const scale = interacting ? 0.25 : 1;
       const width = Math.max(1, Math.floor(renderer.domElement.width * scale));
       const height = Math.max(1, Math.floor(renderer.domElement.height * scale));
       if (aoPass.width !== width || aoPass.height !== height) {
