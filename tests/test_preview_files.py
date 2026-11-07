@@ -21,7 +21,7 @@ class PreviewFilesTest(unittest.TestCase):
         self.root = Path(self.directory.name).resolve() / "repo"
         self.root.mkdir()
 
-    def write(self, name, text=""):
+    def write(self, name, text="import b4dcad\n"):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
@@ -39,7 +39,10 @@ class PreviewFilesTest(unittest.TestCase):
     def test_repository_tree_only_contains_python_and_stays_in_boundary(self):
         self.write(".git/config")
         first = self.write("models/first.py")
-        self.write("second.py")
+        self.write("second.py", "# b4dcad is mentioned in a comment\n")
+        self.write("unrelated.py", "print('hello')\n")
+        self.write("unused/helper.py", "print('hello')\n")
+        self.write("uppercase.py", "import B4DCAD\n")
         self.write("models/notes.txt")
         self.write("empty/notes.md")
         self.write(".git/hidden.py")
@@ -86,6 +89,7 @@ class PreviewFilesTest(unittest.TestCase):
     def test_without_git_only_current_directory_is_selectable(self):
         first = self.write("models/first.py")
         self.write("models/second.py")
+        self.write("models/unrelated.py", "print('hello')\n")
         self.write("models/subdir/third.py")
         self.write("outside.py")
         files = PreviewFiles(first)

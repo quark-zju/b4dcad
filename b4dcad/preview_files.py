@@ -56,6 +56,11 @@ class PreviewFiles:
                             {"name": path.name, "path": relative, "children": nested}
                         )
                 elif path.suffix == ".py" and path.is_file():
+                    try:
+                        if b"b4dcad" not in path.read_bytes():
+                            continue
+                    except OSError:
+                        continue
                     files.append({"name": path.name, "path": relative})
             return folders + files
 
