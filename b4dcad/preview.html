@@ -173,7 +173,7 @@
     });
     const composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(new RenderPass(scene, camera));
-    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight);
+    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight, 8);
     composer.addPass(aoPass);
     composer.addPass(new OutputPass());
     composer.setSize(innerWidth, innerHeight);
@@ -229,6 +229,43 @@
     let modelExtentFromOrigin = 1;
     let viewMode = "solid";
     let aoEnabled = true;
+    let framePending = false;
+    let interacting = false;
+    let interactionEndTimer = null;
+
+    function requestRender() {
+      if (framePending) return;
+      framePending = true;
+      requestAnimationFrame(() => {
+        framePending = false;
+        renderPreview();
+      });
+    }
+
+    function beginInteraction() {
+      clearTimeout(interactionEndTimer);
+      interacting = true;
+      requestRender();
+    }
+
+    function endInteraction() {
+      // Wheel events emit start/end together; wait for a pause before restoring quality.
+      clearTimeout(interactionEndTimer);
+      interactionEndTimer = setTimeout(() => {
+        interacting = false;
+        requestRender();
+      }, 150);
+    }
+
+    function updateAOResolution() {
+      // Only AO is downsampled; the model and feature edges retain full resolution.
+      const scale = interacting ? 0.25 : 0.5;
+      const width = Math.max(1, Math.floor(renderer.domElement.width * scale));
+      const height = Math.max(1, Math.floor(renderer.domElement.height * scale));
+      if (aoPass.width !== width || aoPass.height !== height) {
+        aoPass.setSize(width, height);
+      }
+    }
 
     function renderPreview() {
       if (!aoEnabled || viewMode !== "solid" || !mesh) {
@@ -236,6 +273,7 @@
         return;
       }
 
+      updateAOResolution();
       // SSAOPass r164 caches camera uniforms; refresh them after clipping or aspect changes.
       const uniforms = aoPass.ssaoMaterial.uniforms;
       uniforms.cameraNear.value = camera.near;
@@ -297,6 +335,7 @@
       } else if (edgeLines) {
         rebuildModelDisplay();
       }
+      requestRender();
     }
 
     function updateCameraClipping() {
@@ -317,6 +356,7 @@
       controls.target.copy(modelCenter);
       updateCameraClipping();
       controls.update();
+      requestRender();
     }
 
     function setActiveButton(name) {
@@ -407,6 +447,7 @@
           updateCameraClipping();
           controls.update();
         }
+        requestRender();
       }, undefined, (error) => showError(`Failed to load ${name}: ${error.message || error}`));
     }
 
@@ -459,10 +500,14 @@
     aoButton.addEventListener("click", () => {
       aoEnabled = !aoEnabled;
       aoButton.setAttribute("aria-pressed", String(aoEnabled));
+      requestRender();
     });
     for (const button of modeButtons) {
       button.addEventListener("click", () => applyMode(button.dataset.mode));
     }
+    controls.addEventListener("change", requestRender);
+    controls.addEventListener("start", beginInteraction);
+    controls.addEventListener("end", endInteraction);
 
     const events = new EventSource("/events");
     events.addEventListener("change", refreshModelList);
@@ -474,14 +519,11 @@
       camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
       composer.setSize(innerWidth, innerHeight);
+      updateAOResolution();
+      requestRender();
     });
 
-    function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderPreview();
-    }
-    animate();
+    requestRender();
   </script>
 </body>
 </html>
