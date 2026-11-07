@@ -173,7 +173,16 @@
     });
     const composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(new RenderPass(scene, camera));
-    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight, 8);
+    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight, 16);
+    // Cache both shader variants so quality changes do not recompile them each time.
+    const idleAOMaterial = aoPass.ssaoMaterial;
+    const interactionAOMaterial = idleAOMaterial.clone();
+    interactionAOMaterial.defines.KERNEL_SIZE = 8;
+    interactionAOMaterial.uniforms = {
+      ...idleAOMaterial.uniforms,
+      // Spread eight samples across the same radius as the full sixteen-sample kernel.
+      kernel: { value: aoPass.kernel.filter((_, index) => index % 2 === 0) },
+    };
     composer.addPass(aoPass);
     composer.addPass(new OutputPass());
     composer.setSize(innerWidth, innerHeight);
@@ -257,23 +266,13 @@
       }, 150);
     }
 
-    function updateAOResolution() {
-      // Downsample only AO during interaction; restore native resolution afterward.
-      const scale = interacting ? 0.25 : 1;
-      const width = Math.max(1, Math.floor(renderer.domElement.width * scale));
-      const height = Math.max(1, Math.floor(renderer.domElement.height * scale));
-      if (aoPass.width !== width || aoPass.height !== height) {
-        aoPass.setSize(width, height);
-      }
-    }
-
     function renderPreview() {
       if (!aoEnabled || viewMode !== "solid" || !mesh) {
         renderer.render(scene, camera);
         return;
       }
 
-      updateAOResolution();
+      aoPass.ssaoMaterial = interacting ? interactionAOMaterial : idleAOMaterial;
       // SSAOPass r164 caches camera uniforms; refresh them after clipping or aspect changes.
       const uniforms = aoPass.ssaoMaterial.uniforms;
       uniforms.cameraNear.value = camera.near;
@@ -519,7 +518,6 @@
       camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
       composer.setSize(innerWidth, innerHeight);
-      updateAOResolution();
       requestRender();
     });
 
