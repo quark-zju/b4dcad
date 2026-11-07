@@ -20,7 +20,7 @@ from .core import Shape, Solid
 from .rendering import _RENDERING_MARKER
 from .preview_trace import PreviewTrace
 from .preview_files import PreviewFiles
-from .preview_clipboard import (
+from .preview_finder import (
     DEFAULT_COPY_DIRECTORY,
     copy_file_to_finder,
     finder_copy_command,

@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 from urllib.parse import unquote, urlparse
 
 from b4dcad.cli import PreviewHandler, PreviewServer
-from b4dcad.preview_clipboard import (
+from b4dcad.preview_finder import (
     DEFAULT_COPY_DIRECTORY,
     FINDER_COPY_SCRIPT,
     copy_file_to_finder,
@@ -98,14 +98,14 @@ function run(argv) {
         ):
             with (
                 self.subTest(platform=platform, executable=executable),
-                patch("b4dcad.preview_clipboard.sys.platform", platform),
-                patch("b4dcad.preview_clipboard.os.access", return_value=executable),
+                patch("b4dcad.preview_finder.sys.platform", platform),
+                patch("b4dcad.preview_finder.os.access", return_value=executable),
             ):
                 self.assertEqual(finder_copy_command() is not None, supported)
 
     def test_path_is_one_argument_and_never_inserted_into_script_or_shell(self):
         path = Path('/tmp/quoted "\\\nend run\ndo shell script "echo unsafe".stl')
-        with patch("b4dcad.preview_clipboard.subprocess.run") as run:
+        with patch("b4dcad.preview_finder.subprocess.run") as run:
             copy_file_to_finder(path, "/usr/bin/osascript")
         self.assertEqual(run.call_args.args[0], ["/usr/bin/osascript", "-", str(path)])
         self.assertEqual(run.call_args.kwargs["input"], FINDER_COPY_SCRIPT)
@@ -125,7 +125,7 @@ function run(argv) {
         ):
             with (
                 self.subTest(error=error),
-                patch("b4dcad.preview_clipboard.subprocess.run", side_effect=error),
+                patch("b4dcad.preview_finder.subprocess.run", side_effect=error),
                 self.assertRaisesRegex(RuntimeError, message),
             ):
                 copy_file_to_finder(Path("/tmp/model.stl"), "/usr/bin/osascript")
@@ -193,9 +193,7 @@ class CopyModelTest(unittest.TestCase):
             self.assertEqual(kwargs["input"], FINDER_COPY_SCRIPT)
             self.assertNotIn(str(target), kwargs["input"])
 
-        with patch(
-            "b4dcad.preview_clipboard.subprocess.run", side_effect=run
-        ) as finder:
+        with patch("b4dcad.preview_finder.subprocess.run", side_effect=run) as finder:
             result = self.server.copy_model(**self.request_data())
         finder.assert_called_once()
         self.assertEqual(Path(result["path"]).name, "model-part.stl")
