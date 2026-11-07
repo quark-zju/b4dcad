@@ -80,10 +80,11 @@ b4dcad preview path/to/model.py
 显式指定 `--port` 时只使用该端口。终端会打印实际访问地址。
 有多个组件时页面顶部可切换。支持实体/线框/半透明显示，右下角会显示当前零件的 X/Y/Z 外形尺寸（mm）。
 
-macOS 且后端可用 `osascript` 时，顶部会显示 **Copy Model**。
-点击后先将顶部选中的模型写成 STL，再写入 Finder 兼容的文件 URL 和旧式文件路径列表，供切片软件粘贴导入。
-输出目录复用 `--write-stl`，未指定时使用 `/tmp/stl/`，文件名为 `脚本名-模型名.stl`。
-其他系统不显示复制按钮。路径作为 AppleScript 参数传递，不拼接进脚本源码或 shell 命令。
+macOS 且后端可用系统 `open` 命令时，顶部会显示 **Show in Finder**。
+点击后将当前脚本的全部预览模型（含 `show*`）导出为 STL，再打开 Finder 选中顶部当前选中的 part。
+输出目录复用 `--write-stl`，未指定时使用 `/tmp/stl/`；始终建立脚本名子目录，
+例如 `/tmp/stl/wallet/outer_a.stl`，单个模型也采用同样结构。
+其他系统不显示此按钮。文件路径作为独立参数传给 `open -R`。
 
 点击左上角的文件名可打开 Python 文件树，当前文件会高亮，并自动展开所在目录。
 文件树以启动脚本所属的最近 Git 仓库为边界（支持 `.git` 目录和 worktree 的 `.git` 文件），

@@ -21,10 +21,10 @@ from .rendering import _RENDERING_MARKER
 from .preview_trace import PreviewTrace
 from .preview_files import PreviewFiles
 from .preview_finder import (
-    DEFAULT_COPY_DIRECTORY,
-    copy_file_to_finder,
-    finder_copy_command,
-    write_copy_file,
+    DEFAULT_FINDER_DIRECTORY,
+    finder_reveal_command,
+    reveal_in_finder,
+    write_finder_exports,
 )
 
 PREVIEW_HTML = "preview.html"
@@ -312,8 +312,8 @@ class PreviewServer(ThreadingHTTPServer):
         poll_interval=1.0,
     ):
         self._build_lock = threading.RLock()
-        self._copy_lock = threading.Lock()
-        self._copy_command = finder_copy_command()
+        self._finder_lock = threading.Lock()
+        self._finder_command = finder_reveal_command()
         self._cache_lock = threading.RLock()
         self._stl_cache = OrderedDict()
         self._trace = None
@@ -381,15 +381,15 @@ class PreviewServer(ThreadingHTTPServer):
                 "tree": self._tree,
                 "tree_version": self._tree_version,
                 "source": Path(self.script).relative_to(self.files.root).as_posix(),
-                "can_copy_model": self._copy_command is not None,
+                "can_show_in_finder": self._finder_command is not None,
             }
 
-    def copy_model(self, name, source, tree_version):
-        if self._copy_command is None:
+    def show_in_finder(self, name, source, tree_version):
+        if self._finder_command is None:
             raise NotImplementedError(
-                "Copying model files requires macOS and osascript"
+                "Showing model files in Finder requires macOS and open"
             )
-        with self._copy_lock:
+        with self._finder_lock:
             with self._build_lock, self._cache_lock:
                 current_source = (
                     Path(self.script).relative_to(self.files.root).as_posix()
@@ -399,12 +399,13 @@ class PreviewServer(ThreadingHTTPServer):
                         "The preview changed; select the current model again"
                     )
                 if not isinstance(name, str) or name not in self._stl_cache:
-                    raise ValueError("Select an available model to copy")
-                data = self._stl_cache[name]
+                    raise ValueError("Select an available model to reveal")
+                models = OrderedDict(self._stl_cache)
                 script = self.script
-                directory = self.write_stl or DEFAULT_COPY_DIRECTORY
-            path = write_copy_file(data, directory, script, name)
-            copy_file_to_finder(path, self._copy_command)
+                directory = self.write_stl or DEFAULT_FINDER_DIRECTORY
+            paths = write_finder_exports(models, directory, script)
+            path = paths[name]
+            reveal_in_finder(path, self._finder_command)
             return {"path": str(path)}
 
     def select_file(self, relative):
@@ -560,7 +561,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ("/select-file", "/copy-model"):
+        if path not in ("/select-file", "/show-in-finder"):
             self.send_error(404)
             return
         if self.headers.get_content_type() != "application/json":
@@ -580,7 +581,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             if path == "/select-file":
                 result = self.server.select_file(request.get("path"))
             else:
-                result = self.server.copy_model(
+                result = self.server.show_in_finder(
                     request.get("name"),
                     request.get("source"),
                     request.get("tree_version"),

@@ -208,7 +208,7 @@
     </div>
     <span id="components" class="button-group"></span>
     <span id="tools">
-      <button type="button" id="copy-model" hidden disabled>Copy Model</button>
+      <button type="button" id="show-in-finder" hidden disabled>Show in Finder</button>
       <button type="button" id="reset-view">Reset View</button>
       <button type="button" id="toggle-tree" aria-expanded="false" aria-controls="tree-panel">Tree</button>
       <span id="view-modes" class="button-group">
@@ -259,7 +259,7 @@
     const status = document.querySelector("#status");
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
-    const copyButton = document.querySelector("#copy-model");
+    const finderButton = document.querySelector("#show-in-finder");
     const aoButton = document.querySelector("#toggle-ao");
     const treeButton = document.querySelector("#toggle-tree");
     const treePanel = document.querySelector("#tree-panel");
@@ -374,32 +374,32 @@
     let activeSource = null;
     let selectingFile = false;
     let fileMenuRequest = 0;
-    let canCopyModel = false;
-    let copyingModel = false;
-    let copyFeedbackTimer = null;
+    let canShowInFinder = false;
+    let showingInFinder = false;
+    let finderFeedbackTimer = null;
 
-    function updateCopyButton() {
-      copyButton.hidden = !canCopyModel;
-      copyButton.disabled = !canCopyModel || !activeName || selectingFile || copyingModel;
+    function updateFinderButton() {
+      finderButton.hidden = !canShowInFinder;
+      finderButton.disabled = !canShowInFinder || !activeName || selectingFile || showingInFinder;
     }
 
-    function resetCopyFeedback() {
-      clearTimeout(copyFeedbackTimer);
-      copyButton.textContent = "Copy Model";
-      copyButton.title = "Copy the current model as an STL file";
+    function resetFinderFeedback() {
+      clearTimeout(finderFeedbackTimer);
+      finderButton.textContent = "Show in Finder";
+      finderButton.title = "Export all models and reveal the selected part in Finder";
     }
 
-    async function copyModel() {
-      if (!canCopyModel || !activeName || selectingFile || copyingModel) return;
+    async function showInFinder() {
+      if (!canShowInFinder || !activeName || selectingFile || showingInFinder) return;
       const name = activeName;
       const source = activeSource;
       const version = treeVersion;
-      copyingModel = true;
-      resetCopyFeedback();
-      copyButton.textContent = "Copying…";
-      updateCopyButton();
+      showingInFinder = true;
+      resetFinderFeedback();
+      finderButton.textContent = "Exporting…";
+      updateFinderButton();
       try {
-        const response = await fetch("/copy-model", {
+        const response = await fetch("/show-in-finder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, source, tree_version: version }),
@@ -407,19 +407,19 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         if (source === activeSource && name === activeName && version === treeVersion) {
-          copyButton.textContent = "Copied";
-          copyButton.title = result.path;
-          copyFeedbackTimer = setTimeout(resetCopyFeedback, 2000);
+          finderButton.textContent = "Shown in Finder";
+          finderButton.title = result.path;
+          finderFeedbackTimer = setTimeout(resetFinderFeedback, 2000);
         }
       } catch (error) {
         if (source === activeSource && name === activeName && version === treeVersion) {
-          resetCopyFeedback();
-          showError(`Failed to copy model: ${error.message || error}`);
+          resetFinderFeedback();
+          showError(`Failed to show model in Finder: ${error.message || error}`);
         }
       } finally {
-        copyingModel = false;
-        if (copyButton.textContent === "Copying…") resetCopyFeedback();
-        updateCopyButton();
+        showingInFinder = false;
+        if (finderButton.textContent === "Exporting…") resetFinderFeedback();
+        updateFinderButton();
       }
     }
 
@@ -482,7 +482,7 @@
       closeFileMenu();
       if (path === activeSource) return;
       selectingFile = true;
-      updateCopyButton();
+      updateFinderButton();
       sourceButton.disabled = true;
       sourceButton.setAttribute("aria-busy", "true");
       // Serialize file changes with live reloads so older state cannot replace a new file.
@@ -504,7 +504,7 @@
         showError(`Failed to switch file: ${error.message || error}`);
       } finally {
         selectingFile = false;
-        updateCopyButton();
+        updateFinderButton();
         sourceButton.disabled = false;
         sourceButton.removeAttribute("aria-busy");
       }
@@ -823,8 +823,8 @@
       const request = ++modelRequest;
       const resetCamera = options.resetCamera !== false;
       activeName = name;
-      resetCopyFeedback();
-      updateCopyButton();
+      resetFinderFeedback();
+      updateFinderButton();
       setActiveButton(name);
       rebuildTree();
       const url = `/model/${encodeURIComponent(name)}.stl?ts=${Date.now()}`;
@@ -882,15 +882,15 @@
       edgeLines = null;
       currentGeometry = null;
       activeName = null;
-      resetCopyFeedback();
-      updateCopyButton();
+      resetFinderFeedback();
+      updateFinderButton();
       axes.visible = false;
       dimensions.hidden = true;
       requestRender();
     }
 
     function applyPreviewState(state, options = {}) {
-      canCopyModel = state.can_copy_model === true;
+      canShowInFinder = state.can_show_in_finder === true;
       const sourceChanged = state.source !== activeSource;
       const preserveView = options.preserveView === true && !sourceChanged;
       const previousActiveName = sourceChanged ? null : activeName;
@@ -945,7 +945,7 @@
     refreshModelList();
 
     resetViewButton.addEventListener("click", resetView);
-    copyButton.addEventListener("click", copyModel);
+    finderButton.addEventListener("click", showInFinder);
     sourceButton.addEventListener("click", () => {
       if (fileMenu.hidden) openFileMenu();
       else closeFileMenu();

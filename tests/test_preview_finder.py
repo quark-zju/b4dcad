@@ -1,94 +1,23 @@
 import json
 import subprocess
-import sys
 import tempfile
 import threading
 import unittest
-import uuid
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from urllib.parse import unquote, urlparse
 
 from b4dcad.cli import PreviewHandler, PreviewServer
 from b4dcad.preview_finder import (
-    DEFAULT_COPY_DIRECTORY,
-    FINDER_COPY_SCRIPT,
-    copy_file_to_finder,
-    finder_copy_command,
-    write_copy_file,
+    DEFAULT_FINDER_DIRECTORY,
+    finder_reveal_command,
+    reveal_in_finder,
+    write_finder_exports,
 )
 
 
-class FinderClipboardTest(unittest.TestCase):
-    @unittest.skipUnless(sys.platform == "darwin", "Requires macOS AppKit")
-    def test_native_file_url_and_legacy_file_list_round_trip(self):
-        # Use private pasteboards exclusively: never overwrite the user's clipboard.
-        preflight = """ObjC.import("AppKit");
-var board = $.NSPasteboard.pasteboardWithUniqueName;
-var available = false;
-try { available = board.setStringForType("probe", "public.utf8-plain-text"); }
-finally { board.releaseGlobally; }
-available ? "available" : "unavailable";
-"""
-        available = subprocess.run(
-            ["/usr/bin/osascript", "-l", "JavaScript", "-"],
-            input=preflight,
-            text=True,
-            capture_output=True,
-            timeout=15,
-        )
-        if available.returncode or available.stdout.strip() != "available":
-            self.skipTest(
-                "macOS pasteboard service is unavailable (for example, in a sandbox)"
-            )
-        self.assertEqual(FINDER_COPY_SCRIPT.count("generalPasteboard()"), 1)
-        script = FINDER_COPY_SCRIPT.replace(
-            "generalPasteboard()", "pasteboardWithName:(item 2 of argv)"
-        )
-        name = "b4dcad.tests." + uuid.uuid4().hex
-        readback = """ObjC.import("AppKit");
-function run(argv) {
-    var board = $.NSPasteboard.pasteboardWithName(argv[0]);
-    try {
-        return JSON.stringify({
-            types: ObjC.deepUnwrap(board.types),
-            url: ObjC.unwrap(board.stringForType("public.file-url")),
-            paths: ObjC.deepUnwrap(board.propertyListForType("NSFilenamesPboardType"))
-        });
-    } finally { board.releaseGlobally; }
-}
-"""
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'quote " \\\n模型 #%.stl'
-            path.write_bytes(b"test file")
-            try:
-                subprocess.run(
-                    ["/usr/bin/osascript", "-", str(path), name],
-                    input=script,
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                    timeout=15,
-                )
-            finally:
-                result = subprocess.run(
-                    ["/usr/bin/osascript", "-l", "JavaScript", "-", name],
-                    input=readback,
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                    timeout=15,
-                )
-            data = json.loads(result.stdout)
-            self.assertIn("public.file-url", data["types"])
-            self.assertIn("NSFilenamesPboardType", data["types"])
-            url = urlparse(data["url"])
-            self.assertEqual(url.scheme, "file")
-            self.assertEqual(unquote(url.path), str(path))
-            self.assertEqual(data["paths"], [str(path)])
-
+class FinderExportsTest(unittest.TestCase):
     def test_platform_and_executable_determine_support(self):
         for platform, executable, supported in (
             ("darwin", True, True),
@@ -101,64 +30,76 @@ function run(argv) {
                 patch("b4dcad.preview_finder.sys.platform", platform),
                 patch("b4dcad.preview_finder.os.access", return_value=executable),
             ):
-                self.assertEqual(finder_copy_command() is not None, supported)
+                self.assertEqual(finder_reveal_command() is not None, supported)
 
-    def test_path_is_one_argument_and_never_inserted_into_script_or_shell(self):
-        path = Path('/tmp/quoted "\\\nend run\ndo shell script "echo unsafe".stl')
+    def test_reveal_path_is_one_argument_without_shell_or_script(self):
+        path = Path('/tmp/quoted "\\\n$(echo unsafe).stl')
         with patch("b4dcad.preview_finder.subprocess.run") as run:
-            copy_file_to_finder(path, "/usr/bin/osascript")
-        self.assertEqual(run.call_args.args[0], ["/usr/bin/osascript", "-", str(path)])
-        self.assertEqual(run.call_args.kwargs["input"], FINDER_COPY_SCRIPT)
-        self.assertNotIn(str(path), run.call_args.kwargs["input"])
+            reveal_in_finder(path, "/usr/bin/open")
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/open", "-R", str(path)])
+        self.assertNotIn("input", run.call_args.kwargs)
         self.assertFalse(run.call_args.kwargs.get("shell", False))
         self.assertTrue(run.call_args.kwargs["check"])
 
     def test_finder_errors_and_timeout_are_reported(self):
         for error, message in (
             (
-                subprocess.CalledProcessError(
-                    1, "osascript", stderr="automation denied"
-                ),
-                "automation denied",
+                subprocess.CalledProcessError(1, "open", stderr="Finder unavailable"),
+                "Finder unavailable",
             ),
-            (subprocess.TimeoutExpired("osascript", 15), "timed out"),
+            (subprocess.TimeoutExpired("open", 15), "timed out"),
         ):
             with (
                 self.subTest(error=error),
                 patch("b4dcad.preview_finder.subprocess.run", side_effect=error),
                 self.assertRaisesRegex(RuntimeError, message),
             ):
-                copy_file_to_finder(Path("/tmp/model.stl"), "/usr/bin/osascript")
+                reveal_in_finder(Path("/tmp/model/part.stl"), "/usr/bin/open")
 
-    def test_output_names_cannot_escape_directory_and_fit_unicode_filename_limit(self):
+    def test_all_models_share_script_subfolder_even_for_single_model(self):
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / "output"
-            for script, name in (
-                ("...py", '../../escape"\n'),
-                ("模型" * 100 + ".py", "组件" * 100),
-            ):
-                path = write_copy_file(b"stl bytes", target, script, name)
-                self.assertEqual(path.parent, target.resolve())
-                self.assertEqual(path.suffix, ".stl")
-                self.assertLessEqual(len(path.name.encode("utf-8")), 255)
-                self.assertEqual(path.read_bytes(), b"stl bytes")
+            paths = write_finder_exports(
+                {"part": b"part mesh", "show_all": b"assembly mesh"},
+                directory,
+                "wallet.py",
+            )
+            self.assertEqual(
+                paths["part"], Path(directory).resolve() / "wallet" / "part.stl"
+            )
+            self.assertEqual(paths["part"].read_bytes(), b"part mesh")
+            self.assertEqual(paths["show_all"].read_bytes(), b"assembly mesh")
+            single = write_finder_exports({"only": b"single"}, directory, "single.py")
+            self.assertEqual(
+                single["only"], Path(directory).resolve() / "single" / "only.stl"
+            )
 
-    def test_atomic_output_replaces_symlink_without_writing_its_target(self):
+    def test_sanitized_names_do_not_escape_or_overwrite_other_models(self):
+        models = {"../part": b"a", "___part": b"b", "___Part": b"c", "模型" * 100: b"d"}
+        with tempfile.TemporaryDirectory() as directory:
+            paths = write_finder_exports(models, directory, "...py")
+            self.assertEqual(
+                len({path.name.casefold() for path in paths.values()}), len(models)
+            )
+            for name, path in paths.items():
+                self.assertEqual(path.parent, Path(directory).resolve() / "model")
+                self.assertLessEqual(len(path.name.encode("utf-8")), 255)
+                self.assertEqual(path.read_bytes(), models[name])
+
+    def test_atomic_export_replaces_symlink_without_writing_its_target(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            target = root / "output"
-            target.mkdir()
+            (root / "model").mkdir()
             outside = root / "outside"
             outside.write_bytes(b"unchanged")
-            (target / "model-part.stl").symlink_to(outside)
-            path = write_copy_file(b"new mesh", target, "model.py", "part")
+            (root / "model" / "part.stl").symlink_to(outside)
+            path = write_finder_exports({"part": b"new mesh"}, root, "model.py")["part"]
             self.assertEqual(outside.read_bytes(), b"unchanged")
             self.assertFalse(path.is_symlink())
             self.assertEqual(path.read_bytes(), b"new mesh")
-            self.assertFalse(list(target.glob(".b4dcad-copy-*")))
+            self.assertFalse(list(path.parent.glob(".b4dcad-export-*")))
 
 
-class CopyModelTest(unittest.TestCase):
+class ShowInFinderTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -167,7 +108,7 @@ class CopyModelTest(unittest.TestCase):
         self.script.write_text(
             "from b4dcad import box\npart = box(1, 2, 3)\nshow_all = part.move(x=3)\n"
         )
-        with patch("b4dcad.cli.finder_copy_command", return_value="/usr/bin/osascript"):
+        with patch("b4dcad.cli.finder_reveal_command", return_value="/usr/bin/open"):
             self.server = PreviewServer(
                 ("127.0.0.1", 0), PreviewHandler, str(self.script), poll_interval=3600
             )
@@ -181,37 +122,41 @@ class CopyModelTest(unittest.TestCase):
             "tree_version": state["tree_version"],
         }
 
-    def test_selected_model_is_written_before_finder_receives_quoted_directory(self):
-        target = self.root / 'quotes "\\\nend run\ndo shell script "echo unsafe"'
+    def test_all_models_are_written_before_revealing_selected_part(self):
+        target = self.root / 'quotes "\\\n$(echo unsafe)'
         self.server.write_stl = str(target)
-        expected = self.server.stl_bytes("part")
 
         def run(command, **kwargs):
             path = Path(command[-1])
-            self.assertEqual(path.parent, target)
-            self.assertEqual(path.read_bytes(), expected)
-            self.assertEqual(kwargs["input"], FINDER_COPY_SCRIPT)
-            self.assertNotIn(str(target), kwargs["input"])
+            self.assertEqual(path, target / "model" / "part.stl")
+            for name in self.server.model_names():
+                self.assertEqual(
+                    (path.parent / f"{name}.stl").read_bytes(),
+                    self.server.stl_bytes(name),
+                )
+            self.assertEqual(command[:2], ["/usr/bin/open", "-R"])
+            self.assertNotIn("input", kwargs)
 
         with patch("b4dcad.preview_finder.subprocess.run", side_effect=run) as finder:
-            result = self.server.copy_model(**self.request_data())
+            result = self.server.show_in_finder(**self.request_data())
         finder.assert_called_once()
-        self.assertEqual(Path(result["path"]).name, "model-part.stl")
+        self.assertEqual(Path(result["path"]), target / "model" / "part.stl")
 
-    def test_fallback_directory_and_preview_only_model(self):
-        self.assertEqual(DEFAULT_COPY_DIRECTORY, "/tmp/stl")
+    def test_fallback_directory_and_selected_preview_only_model(self):
+        self.assertEqual(DEFAULT_FINDER_DIRECTORY, "/tmp/stl")
         target = self.root / "fallback"
         with (
-            patch("b4dcad.cli.DEFAULT_COPY_DIRECTORY", str(target)),
-            patch("b4dcad.cli.copy_file_to_finder") as finder,
+            patch("b4dcad.cli.DEFAULT_FINDER_DIRECTORY", str(target)),
+            patch("b4dcad.cli.reveal_in_finder") as finder,
         ):
-            result = self.server.copy_model(**self.request_data("show_all"))
+            result = self.server.show_in_finder(**self.request_data("show_all"))
         path = Path(result["path"])
-        self.assertEqual(path.parent, target)
+        self.assertEqual(path, target / "model" / "show_all.stl")
         self.assertEqual(path.read_bytes(), self.server.stl_bytes("show_all"))
-        finder.assert_called_once_with(path, "/usr/bin/osascript")
+        self.assertTrue((path.parent / "part.stl").is_file())
+        finder.assert_called_once_with(path, "/usr/bin/open")
 
-    def test_stale_or_unknown_model_is_rejected_before_writing(self):
+    def test_stale_or_unknown_part_is_rejected_before_export(self):
         valid = self.request_data()
         for changes in (
             {"name": "missing"},
@@ -221,35 +166,44 @@ class CopyModelTest(unittest.TestCase):
         ):
             with (
                 self.subTest(changes=changes),
-                patch("b4dcad.cli.write_copy_file") as write,
-                patch("b4dcad.cli.copy_file_to_finder") as finder,
+                patch("b4dcad.cli.write_finder_exports") as write,
+                patch("b4dcad.cli.reveal_in_finder") as finder,
                 self.assertRaises(ValueError),
             ):
-                self.server.copy_model(**(valid | changes))
+                self.server.show_in_finder(**(valid | changes))
             write.assert_not_called()
             finder.assert_not_called()
 
-    def test_unsupported_backend_disables_capability_and_rejects_copy(self):
-        self.server._copy_command = None
-        self.assertFalse(self.server.state()["can_copy_model"])
+    def test_export_failure_prevents_finder_open(self):
         with (
-            patch("b4dcad.cli.write_copy_file") as write,
+            patch("b4dcad.cli.write_finder_exports", side_effect=OSError("disk full")),
+            patch("b4dcad.cli.reveal_in_finder") as finder,
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            self.server.show_in_finder(**self.request_data())
+        finder.assert_not_called()
+
+    def test_unsupported_backend_hides_capability_and_rejects_reveal(self):
+        self.server._finder_command = None
+        self.assertFalse(self.server.state()["can_show_in_finder"])
+        with (
+            patch("b4dcad.cli.write_finder_exports") as write,
             self.assertRaises(NotImplementedError),
         ):
-            self.server.copy_model(**self.request_data())
+            self.server.show_in_finder(**self.request_data())
         write.assert_not_called()
 
-    def test_http_capability_copy_and_failure_responses(self):
+    def test_http_capability_reveal_and_failure_responses(self):
         self.server.write_stl = str(self.root / "output")
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{self.server.server_port}"
 
-        def post(data):
+        def post():
             return urlopen(
                 Request(
-                    base + "/copy-model",
-                    json.dumps(data).encode(),
+                    base + "/show-in-finder",
+                    json.dumps(self.request_data()).encode(),
                     {"Content-Type": "application/json"},
                 ),
                 timeout=3,
@@ -257,24 +211,27 @@ class CopyModelTest(unittest.TestCase):
 
         try:
             with urlopen(base + "/state.json", timeout=3) as response:
-                self.assertTrue(json.load(response)["can_copy_model"])
-            with patch("b4dcad.cli.copy_file_to_finder") as finder:
-                with post(self.request_data()) as response:
+                self.assertTrue(json.load(response)["can_show_in_finder"])
+            with patch("b4dcad.cli.reveal_in_finder") as finder:
+                with post() as response:
                     path = Path(json.load(response)["path"])
                 self.assertEqual(path.read_bytes(), self.server.stl_bytes("part"))
+                self.assertTrue((path.parent / "show_all.stl").is_file())
                 finder.assert_called_once()
             with patch(
-                "b4dcad.cli.copy_file_to_finder",
-                side_effect=RuntimeError("automation denied"),
+                "b4dcad.cli.reveal_in_finder",
+                side_effect=RuntimeError("Finder unavailable"),
             ):
                 with self.assertRaises(HTTPError) as caught:
-                    post(self.request_data())
+                    post()
                 self.assertEqual(caught.exception.code, 500)
-                self.assertIn("automation denied", json.load(caught.exception)["error"])
+                self.assertIn(
+                    "Finder unavailable", json.load(caught.exception)["error"]
+                )
                 caught.exception.close()
-            self.server._copy_command = None
+            self.server._finder_command = None
             with self.assertRaises(HTTPError) as caught:
-                post(self.request_data())
+                post()
             self.assertEqual(caught.exception.code, 501)
             caught.exception.close()
         finally:
