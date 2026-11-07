@@ -116,6 +116,7 @@
         <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
         <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
       </span>
+      <button type="button" id="toggle-ao" aria-pressed="true" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
     </span>
     <span id="status" class="error" aria-live="polite"></span>
   </nav>
@@ -126,11 +127,16 @@
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { STLLoader } from "three/addons/loaders/STLLoader.js";
     import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+    import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+    import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+    import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
+    import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
     const components = document.querySelector("#components");
     const status = document.querySelector("#status");
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
+    const aoButton = document.querySelector("#toggle-ao");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const dimensions = document.querySelector("#dimensions");
     const showError = (message) => {
@@ -159,6 +165,18 @@
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(devicePixelRatio);
     document.body.appendChild(renderer.domElement);
+
+    // Keep antialiasing in the offscreen color pass as well as the direct renderer.
+    const renderTarget = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
+      type: THREE.HalfFloatType,
+      samples: renderer.capabilities.isWebGL2 ? 4 : 0,
+    });
+    const composer = new EffectComposer(renderer, renderTarget);
+    composer.addPass(new RenderPass(scene, camera));
+    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight);
+    composer.addPass(aoPass);
+    composer.addPass(new OutputPass());
+    composer.setSize(innerWidth, innerHeight);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = false;
@@ -210,6 +228,27 @@
     let modelCenter = new THREE.Vector3(0, 0, 0);
     let modelExtentFromOrigin = 1;
     let viewMode = "solid";
+    let aoEnabled = true;
+
+    function renderPreview() {
+      if (!aoEnabled || viewMode !== "solid" || !mesh) {
+        renderer.render(scene, camera);
+        return;
+      }
+
+      // SSAOPass r164 caches camera uniforms; refresh them after clipping or aspect changes.
+      const uniforms = aoPass.ssaoMaterial.uniforms;
+      uniforms.cameraNear.value = camera.near;
+      uniforms.cameraFar.value = camera.far;
+      uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix);
+      uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
+      aoPass.kernelRadius = modelSize * 0.04;
+      // The shader compares linear depths normalized to the camera clipping range.
+      const depthScale = modelSize / (camera.far - camera.near);
+      aoPass.minDistance = depthScale * 0.001;
+      aoPass.maxDistance = depthScale * 0.08;
+      composer.render();
+    }
 
     function materialForMode() {
       if (viewMode === "transparent") {
@@ -249,6 +288,7 @@
 
     function applyMode(mode) {
       viewMode = mode;
+      aoButton.disabled = mode !== "solid";
       for (const button of modeButtons) {
         button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
       }
@@ -416,6 +456,10 @@
     loadModelList().catch((error) => showError(`Failed to load models: ${error.message || error}`));
 
     resetViewButton.addEventListener("click", resetView);
+    aoButton.addEventListener("click", () => {
+      aoEnabled = !aoEnabled;
+      aoButton.setAttribute("aria-pressed", String(aoEnabled));
+    });
     for (const button of modeButtons) {
       button.addEventListener("click", () => applyMode(button.dataset.mode));
     }
@@ -429,12 +473,13 @@
       camera.aspect = innerWidth / innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
+      composer.setSize(innerWidth, innerHeight);
     });
 
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
-      renderer.render(scene, camera);
+      renderPreview();
     }
     animate();
   </script>
