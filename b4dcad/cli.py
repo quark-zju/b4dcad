@@ -9,6 +9,7 @@ import tempfile
 import threading
 import traceback
 from collections import OrderedDict
+from html import escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -16,6 +17,7 @@ from urllib.parse import unquote, urlparse
 from .core import Shape, Solid
 from .rendering import _RENDERING_MARKER
 from .preview_trace import PreviewTrace
+from .preview_files import PreviewFiles
 
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
@@ -299,6 +301,7 @@ class PreviewServer(ThreadingHTTPServer):
         write_stl=None,
         poll_interval=1.0,
     ):
+        self._build_lock = threading.RLock()
         self._cache_lock = threading.RLock()
         self._stl_cache = OrderedDict()
         self._trace = None
@@ -309,7 +312,8 @@ class PreviewServer(ThreadingHTTPServer):
         self._change = threading.Condition()
         self._stop_watcher = threading.Event()
         super().__init__(address, handler)
-        self.script = script
+        self.script = str(Path(script).resolve())
+        self.files = PreviewFiles(self.script)
         self.object_name = object_name
         self.write_stl = write_stl
         self.poll_interval = poll_interval
@@ -321,6 +325,10 @@ class PreviewServer(ThreadingHTTPServer):
         self._watcher.start()
 
     def rebuild_cache(self, write_files=False):
+        with self._build_lock:
+            return self._rebuild_cache(write_files)
+
+    def _rebuild_cache(self, write_files=False):
         try:
             cache, trace, tree = self._module_tracker.execute(
                 lambda run_name: build_preview_scene(
@@ -353,19 +361,46 @@ class PreviewServer(ThreadingHTTPServer):
             return list(self._stl_cache.keys())
 
     def state(self):
-        with self._cache_lock:
+        with self._build_lock, self._cache_lock:
             return {
                 "version": self.version,
                 "models": list(self._stl_cache.keys()),
                 "error": self._error,
                 "tree": self._tree,
                 "tree_version": self._tree_version,
+                "source": Path(self.script).relative_to(self.files.root).as_posix(),
             }
+
+    def select_file(self, relative):
+        with self._build_lock:
+            path = self.files.resolve(relative)
+            if path == Path(self.script):
+                return self.state()
+            # Purge before constructing the tracker so the old model's imports
+            # cannot become protected modules in the new execution context.
+            self._module_tracker._purge()
+            with self._cache_lock:
+                self.script = str(path)
+                self.object_name = None
+                self._module_tracker = _LocalModuleTracker(path)
+                self._stl_cache = OrderedDict()
+                self._trace = None
+                self._tree = {"nodes": {}, "roots": {}, "assignments": []}
+                self._tree_stls = {}
+                self._tree_version += 1
+                self._error = None
+            self._file_signatures = self._current_file_signatures()
+            self.rebuild_cache(write_files=bool(self.write_stl))
+            self._retain_file_signatures()
+            with self._change:
+                self.version += 1
+                self._change.notify_all()
+            return self.state()
 
     def stl_bytes(self, name=None):
         with self._cache_lock:
             if name is None:
-                return next(iter(self._stl_cache.values()))
+                return next(iter(self._stl_cache.values()), None)
             if name not in self._stl_cache:
                 return None
             return self._stl_cache[name]
@@ -394,6 +429,10 @@ class PreviewServer(ThreadingHTTPServer):
         return {path: _file_signature(path) for path in self._watched_paths()}
 
     def check_for_change(self):
+        with self._build_lock:
+            return self._check_for_change()
+
+    def _check_for_change(self):
         observed = self._current_file_signatures()
         changed = [
             path
@@ -406,12 +445,18 @@ class PreviewServer(ThreadingHTTPServer):
         # Preserve pre-build signatures for existing dependencies. A file edited
         # during a slow build will then be noticed by the next poll.
         self._file_signatures = observed
-        self.version += 1
         print(
             "Detected change in " + ", ".join(str(path) for path in sorted(changed)),
             flush=True,
         )
         self.rebuild_cache(write_files=bool(self.write_stl))
+        self._retain_file_signatures()
+        with self._change:
+            self.version += 1
+            self._change.notify_all()
+        return True
+
+    def _retain_file_signatures(self):
         watched = self._watched_paths()
         self._file_signatures = {
             path: (
@@ -421,9 +466,6 @@ class PreviewServer(ThreadingHTTPServer):
             )
             for path in watched
         }
-        with self._change:
-            self._change.notify_all()
-        return True
 
     def wait_for_change(self, version):
         with self._change:
@@ -457,6 +499,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         if path == "/models.json":
             self._send_models()
             return
+        if path == "/files.json":
+            self._send_json(self.server.files.tree(self.server.script))
+            return
         if path.startswith("/tree/") and path.endswith(".stl"):
             parts = path.split("/")
             if len(parts) != 4 or not parts[2].isdigit():
@@ -477,8 +522,28 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             return
         self.send_error(404)
 
+    def do_POST(self):
+        if urlparse(self.path).path != "/select-file":
+            self.send_error(404)
+            return
+        if self.headers.get_content_type() != "application/json":
+            self.send_error(415, "Expected application/json")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 16384:
+                raise ValueError("Invalid request length")
+            request = json.loads(self.rfile.read(length))
+            if not isinstance(request, dict):
+                raise ValueError("Expected a JSON object")
+            state = self.server.select_file(request.get("path"))
+        except (ValueError, OSError) as error:
+            self.send_error(400, str(error))
+            return
+        self._send_json(state)
+
     def _send_html(self):
-        source_name = Path(self.server.script).name
+        source_name = escape(Path(self.server.script).name)
         html = load_preview_html()
         html = html.replace("__SOURCE_NAME__", source_name)
         data = html.encode("utf-8")
