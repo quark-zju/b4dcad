@@ -20,6 +20,12 @@ from .core import Shape, Solid
 from .rendering import _RENDERING_MARKER
 from .preview_trace import PreviewTrace
 from .preview_files import PreviewFiles
+from .preview_clipboard import (
+    DEFAULT_COPY_DIRECTORY,
+    copy_file_to_finder,
+    finder_copy_command,
+    write_copy_file,
+)
 
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
@@ -306,6 +312,8 @@ class PreviewServer(ThreadingHTTPServer):
         poll_interval=1.0,
     ):
         self._build_lock = threading.RLock()
+        self._copy_lock = threading.Lock()
+        self._copy_command = finder_copy_command()
         self._cache_lock = threading.RLock()
         self._stl_cache = OrderedDict()
         self._trace = None
@@ -373,7 +381,31 @@ class PreviewServer(ThreadingHTTPServer):
                 "tree": self._tree,
                 "tree_version": self._tree_version,
                 "source": Path(self.script).relative_to(self.files.root).as_posix(),
+                "can_copy_model": self._copy_command is not None,
             }
+
+    def copy_model(self, name, source, tree_version):
+        if self._copy_command is None:
+            raise NotImplementedError(
+                "Copying model files requires macOS and osascript"
+            )
+        with self._copy_lock:
+            with self._build_lock, self._cache_lock:
+                current_source = (
+                    Path(self.script).relative_to(self.files.root).as_posix()
+                )
+                if source != current_source or tree_version != self._tree_version:
+                    raise ValueError(
+                        "The preview changed; select the current model again"
+                    )
+                if not isinstance(name, str) or name not in self._stl_cache:
+                    raise ValueError("Select an available model to copy")
+                data = self._stl_cache[name]
+                script = self.script
+                directory = self.write_stl or DEFAULT_COPY_DIRECTORY
+            path = write_copy_file(data, directory, script, name)
+            copy_file_to_finder(path, self._copy_command)
+            return {"path": str(path)}
 
     def select_file(self, relative):
         with self._build_lock:
@@ -527,7 +559,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
-        if urlparse(self.path).path != "/select-file":
+        path = urlparse(self.path).path
+        if path not in ("/select-file", "/copy-model"):
             self.send_error(404)
             return
         if self.headers.get_content_type() != "application/json":
@@ -540,11 +573,28 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             request = json.loads(self.rfile.read(length))
             if not isinstance(request, dict):
                 raise ValueError("Expected a JSON object")
-            state = self.server.select_file(request.get("path"))
-        except (ValueError, OSError) as error:
+        except ValueError as error:
             self.send_error(400, str(error))
             return
-        self._send_json(state)
+        try:
+            if path == "/select-file":
+                result = self.server.select_file(request.get("path"))
+            else:
+                result = self.server.copy_model(
+                    request.get("name"),
+                    request.get("source"),
+                    request.get("tree_version"),
+                )
+        except NotImplementedError as error:
+            self._send_json({"error": str(error)}, status=501)
+            return
+        except ValueError as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        except (OSError, RuntimeError) as error:
+            self._send_json({"error": str(error)}, status=500)
+            return
+        self._send_json(result)
 
     def _send_html(self):
         source_name = escape(Path(self.server.script).name)
@@ -565,9 +615,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_json(self, value):
+    def _send_json(self, value, status=200):
         data = json.dumps(value).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
