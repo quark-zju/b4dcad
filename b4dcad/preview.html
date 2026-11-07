@@ -7,9 +7,12 @@
   <title>__SOURCE_NAME__</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f0; }
+    body { display: flex; flex-direction: column; }
     canvas { display: block; }
+    #workspace { display: flex; flex: 1; min-height: 0; }
+    #viewport { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
     #bar {
-      position: fixed; left: 0; right: 0; top: 0; z-index: 1;
+      flex-shrink: 0; z-index: 1;
       display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       font: 13px system-ui, sans-serif; color: #222;
       background: rgba(255,255,255,.88); padding: 10px 12px; border-bottom: 1px solid #ddd;
@@ -110,7 +113,7 @@
       margin-right: 6px;
     }
     #dimensions {
-      position: fixed;
+      position: absolute;
       right: 12px;
       bottom: 12px;
       z-index: 1;
@@ -122,6 +125,8 @@
       font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-variant-numeric: tabular-nums;
       pointer-events: none;
+      max-width: calc(100% - 40px);
+      overflow-wrap: anywhere;
     }
     #dimensions[hidden] {
       display: none;
@@ -130,15 +135,12 @@
       font-weight: 700;
     }
     #tree-panel {
-      position: fixed;
-      left: 12px;
-      top: 64px;
-      bottom: 72px;
-      width: min(320px, calc(100vw - 48px));
-      z-index: 1;
+      flex: 0 0 min(340px, 40%);
+      min-width: 0;
+      box-sizing: border-box;
       overflow: auto;
       background: rgba(255,255,255,.94);
-      border: 1px solid #ccc;
+      border-left: 1px solid #ccc;
       padding: 10px;
       font: 12px system-ui, sans-serif;
     }
@@ -160,6 +162,8 @@
     }
     #tree-panel summary { cursor: pointer; }
     #tree-panel p { color: #666; }
+    #tree-panel h2 { font-size: 13px; margin: 12px 0 6px; }
+    #tree-panel .assignment-source { display: block; padding-left: 5px; color: #666; }
   </style>
   <script type="importmap">
     {
@@ -189,11 +193,24 @@
     <span id="status" class="error" aria-live="polite"></span>
   </nav>
   <pre id="error-panel" hidden></pre>
-  <output id="dimensions" aria-live="polite" hidden></output>
-  <aside id="tree-panel" aria-label="Model construction tree" hidden>
-    <button type="button" id="clear-selection">Clear selection</button>
-    <div id="tree-content"></div>
-  </aside>
+  <main id="workspace">
+    <div id="viewport">
+      <output id="dimensions" aria-live="polite" hidden></output>
+    </div>
+    <aside id="tree-panel" aria-label="Model construction tree" hidden>
+      <button type="button" id="clear-selection">Clear selection</button>
+      <div id="tree-content">
+        <section aria-labelledby="object-tree-heading">
+          <h2 id="object-tree-heading">Object tree</h2>
+          <div id="object-tree-content"></div>
+        </section>
+        <details id="assignment-history">
+          <summary id="assignment-history-summary">Assignment history</summary>
+          <ul id="assignment-history-content"></ul>
+        </details>
+      </div>
+    </aside>
+  </main>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -212,6 +229,10 @@
     const treeButton = document.querySelector("#toggle-tree");
     const treePanel = document.querySelector("#tree-panel");
     const treeContent = document.querySelector("#tree-content");
+    const viewport = document.querySelector("#viewport");
+    const objectTreeContent = document.querySelector("#object-tree-content");
+    const assignmentHistory = document.querySelector("#assignment-history");
+    const assignmentHistoryContent = document.querySelector("#assignment-history-content");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const dimensions = document.querySelector("#dimensions");
     const showError = (message) => {
@@ -235,24 +256,26 @@
     const scene = new THREE.Scene();
     const highlightScene = new THREE.Scene();
     scene.background = new THREE.Color(0xf4f4f0);
-    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 10000);
+    const viewportWidth = Math.max(1, viewport.clientWidth);
+    const viewportHeight = Math.max(1, viewport.clientHeight);
+    const camera = new THREE.PerspectiveCamera(45, viewportWidth / viewportHeight, 0.01, 10000);
     camera.up.set(0, 0, 1);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(innerWidth, innerHeight);
+    renderer.setSize(viewportWidth, viewportHeight);
     renderer.setPixelRatio(devicePixelRatio);
-    document.body.appendChild(renderer.domElement);
+    viewport.appendChild(renderer.domElement);
 
     // Keep antialiasing in the offscreen color pass as well as the direct renderer.
-    const renderTarget = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
+    const renderTarget = new THREE.WebGLRenderTarget(viewportWidth, viewportHeight, {
       type: THREE.HalfFloatType,
       samples: renderer.capabilities.isWebGL2 ? 4 : 0,
     });
     const composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(new RenderPass(scene, camera));
-    const aoPass = new SSAOPass(scene, camera, innerWidth, innerHeight, 16);
+    const aoPass = new SSAOPass(scene, camera, viewportWidth, viewportHeight, 16);
     composer.addPass(aoPass);
     composer.addPass(new OutputPass());
-    composer.setSize(innerWidth, innerHeight);
+    composer.setSize(viewportWidth, viewportHeight);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = false;
@@ -312,6 +335,7 @@
     let highlight = null;
     let selectionRequest = 0;
     let modelRequest = 0;
+    let assignmentsByNode = new Map();
 
     function requestRender() {
       if (framePending) return;
@@ -415,11 +439,13 @@
       const button = nodeButton(key, `${node.names.join(" / ")}${node.operation === "+" ? " (+)" : ""}`);
       if (!node.children.length) {
         item.append(button);
+        appendAssignmentSources(item, key);
         return item;
       }
       const details = document.createElement("details");
       const summary = document.createElement("summary");
       summary.append(button);
+      appendAssignmentSources(summary, key);
       details.append(summary);
       let built = false;
       details.addEventListener("toggle", () => {
@@ -433,42 +459,56 @@
       return item;
     }
 
-    function rebuildTree() {
-      positionTreePanel();
-      treeContent.replaceChildren();
+    function assignmentLabel(assignment) {
+      const filename = assignment.file.split(/[\\/]/).pop();
+      return `${assignment.name} · ${filename}:${assignment.line} · ${assignment.scope}`;
+    }
+
+    function appendAssignmentSources(parent, key) {
+      for (const assignment of assignmentsByNode.get(key) || []) {
+        const source = document.createElement("small");
+        source.className = "assignment-source";
+        source.textContent = assignmentLabel(assignment);
+        parent.append(source);
+      }
+    }
+
+    function rebuildObjectTree() {
+      objectTreeContent.replaceChildren();
       const root = treeData.roots[activeName];
       if (root && treeData.nodes[root]) {
         const list = document.createElement("ul");
         const item = treeNode(root);
         list.append(item);
-        treeContent.append(list);
+        objectTreeContent.append(list);
         const details = item.querySelector("details");
         if (details) details.open = true;
       } else {
         const message = document.createElement("p");
-        message.textContent = "No recorded Solid tree for this model.";
-        treeContent.append(message);
+        message.textContent = "No recorded Solid tree for this shape.";
+        objectTreeContent.append(message);
       }
-      const history = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = `Assignment history (${treeData.assignments.length})`;
-      history.append(summary);
-      history.addEventListener("toggle", () => {
-        if (!history.isConnected || !history.open || history.childElementCount > 1) return;
-        const list = document.createElement("ul");
-        for (const assignment of treeData.assignments) {
-          const item = document.createElement("li");
-          const filename = assignment.file.split(/[\\/]/).pop();
-          item.append(nodeButton(assignment.node, `${assignment.name} · ${filename}:${assignment.line} · ${assignment.scope}`));
-          list.append(item);
-        }
-        history.append(list);
-      });
-      treeContent.append(history);
     }
 
-    function positionTreePanel() {
-      treePanel.style.top = `${document.querySelector("#bar").getBoundingClientRect().bottom + 8}px`;
+    function buildAssignmentHistory() {
+      if (!assignmentHistory.open || assignmentHistoryContent.childElementCount) return;
+      for (const assignment of treeData.assignments) {
+        const item = document.createElement("li");
+        item.append(nodeButton(assignment.node, assignmentLabel(assignment)));
+        assignmentHistoryContent.append(item);
+      }
+    }
+
+    function rebuildTree() {
+      assignmentsByNode = new Map();
+      for (const assignment of treeData.assignments) {
+        if (!assignmentsByNode.has(assignment.node)) assignmentsByNode.set(assignment.node, []);
+        assignmentsByNode.get(assignment.node).push(assignment);
+      }
+      rebuildObjectTree();
+      document.querySelector("#assignment-history-summary").textContent = `Assignment history (${treeData.assignments.length})`;
+      assignmentHistoryContent.replaceChildren();
+      buildAssignmentHistory();
     }
 
     function materialForMode() {
@@ -698,10 +738,11 @@
     treeButton.addEventListener("click", () => {
       treePanel.hidden = !treePanel.hidden;
       treeButton.setAttribute("aria-expanded", String(!treePanel.hidden));
-      positionTreePanel();
       if (treePanel.hidden) clearSelection();
+      resizeViewport();
     });
-    document.querySelector("#clear-selection").addEventListener("click", clearSelection);
+    document.querySelector("#clear-selection").addEventListener("click", () => clearSelection());
+    assignmentHistory.addEventListener("toggle", buildAssignmentHistory);
     aoButton.addEventListener("click", () => {
       aoEnabled = !aoEnabled;
       aoButton.setAttribute("aria-pressed", String(aoEnabled));
@@ -717,14 +758,18 @@
     events.addEventListener("open", () => clearError("Live preview disconnected"));
     events.addEventListener("error", () => showError("Live preview disconnected"));
 
-    addEventListener("resize", () => {
-      camera.aspect = innerWidth / innerHeight;
+    function resizeViewport() {
+      const width = Math.max(1, viewport.clientWidth);
+      const height = Math.max(1, viewport.clientHeight);
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-      composer.setSize(innerWidth, innerHeight);
-      positionTreePanel();
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
       requestRender();
-    });
+    }
+
+    const viewportObserver = new ResizeObserver(resizeViewport);
+    viewportObserver.observe(viewport);
 
     requestRender();
   </script>
