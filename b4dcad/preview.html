@@ -12,62 +12,69 @@
     #workspace { display: flex; flex: 1; min-height: 0; }
     #viewport { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
     #bar {
+      --toolbar-gap: 8px;
+      --control-border: #ccc;
+      --control-active: #222;
       flex-shrink: 0; z-index: 1;
-      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       font: 13px system-ui, sans-serif; color: #222;
       background: rgba(255,255,255,.88); padding: 10px 12px; border-bottom: 1px solid #ddd;
     }
+    #bar, #tools, #view-tools {
+      display: flex; gap: var(--toolbar-gap); align-items: center; flex-wrap: wrap;
+    }
     #bar button {
-      appearance: none; border: 1px solid #ccc; background: #fff; color: #222;
+      appearance: none; border: 1px solid var(--control-border); background: #fff; color: #222;
       padding: 6px 10px; cursor: pointer; border-radius: 0;
     }
     #bar button[aria-pressed="true"] {
-      background: #222; color: #fff; border-color: #222;
+      background: var(--control-active); color: #fff; border-color: var(--control-active);
     }
     #bar button:disabled {
-      background: #eee; color: #777; border-color: #ccc; cursor: default;
+      background: #eee; color: #777; border-color: var(--control-border); cursor: default;
     }
     .button-group {
       display: inline-flex;
       gap: 0;
     }
-    .button-group > button + button,
-    .button-group > .solid-control + button {
-      margin-left: -1px;
+    .button-group > * + * {
+      margin-inline-start: -1px;
     }
-    .button-group button[aria-pressed="true"] {
+    .button-group > button[aria-pressed="true"],
+    .solid-control:has(> [data-mode="solid"][aria-pressed="true"]) {
       position: relative;
       z-index: 1;
     }
     .solid-control {
-      position: relative;
       display: inline-flex;
+      align-items: center;
+      gap: var(--toolbar-gap);
+      padding-inline-end: var(--toolbar-gap);
+      border: 1px solid var(--control-border);
+      background: #fff;
+    }
+    .solid-control:has(> [data-mode="solid"][aria-pressed="true"]) {
+      background: var(--control-active);
+      border-color: var(--control-active);
     }
     #bar .solid-control > [data-mode="solid"] {
-      padding-right: 44px;
+      align-self: stretch;
+      border: 0;
+      padding-inline-end: 0;
     }
     #bar #toggle-ao {
-      position: absolute;
-      right: 5px;
-      top: 50%;
-      transform: translateY(-50%);
-      z-index: 2;
       padding: 2px 4px;
       font-size: 10px;
       line-height: 1.2;
+    }
+    #bar #toggle-ao:enabled {
       background: #555;
       color: #fff;
       border-color: #888;
     }
-    #bar #toggle-ao[aria-pressed="true"] {
+    #bar #toggle-ao:enabled[aria-pressed="true"] {
       background: #fff;
       color: #222;
-      border-color: #ccc;
-    }
-    #bar #toggle-ao:disabled {
-      background: #eee;
-      color: #777;
-      border-color: #ccc;
+      border-color: var(--control-border);
     }
     #bar .error {
       color: #8a1f11;
@@ -104,16 +111,7 @@
       overflow-wrap: anywhere;
     }
     #tools {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-left: auto;
-    }
-    #view-tools {
-      display: inline-flex;
-      gap: 4px;
-      flex-wrap: wrap;
+      margin-inline-start: auto;
     }
     #source-name {
       font-weight: 600;
