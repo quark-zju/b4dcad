@@ -482,8 +482,10 @@
     let canShowInFinder = false;
     let showingInFinder = false;
     let tooltipButton = null;
+    let tooltipTimer;
 
     function showToolbarTooltip(button) {
+      clearTimeout(tooltipTimer);
       const label = button.getAttribute("aria-label") || button.textContent.trim();
       const detail = button.dataset.tooltipDetail;
       toolbarTooltip.textContent = detail ? `${label}\n${detail}` : label;
@@ -496,6 +498,7 @@
     }
 
     function hideToolbarTooltip() {
+      clearTimeout(tooltipTimer);
       toolbarTooltip.hidden = true;
       tooltipButton = null;
     }
@@ -1084,13 +1087,18 @@
 
     toolbar.addEventListener("pointerover", (event) => {
       const button = toolbarButton(event.target);
-      if (button && event.pointerType !== "touch" && !button.contains(event.relatedTarget)) {
-        showToolbarTooltip(button);
+      if (button && button !== tooltipButton && event.pointerType !== "touch" && !button.contains(event.relatedTarget)) {
+        clearTimeout(tooltipTimer);
+        tooltipTimer = setTimeout(() => {
+          if (button.matches(":hover")) showToolbarTooltip(button);
+        }, 350);
       }
     });
     toolbar.addEventListener("pointerout", (event) => {
-      const button = tooltipButton;
-      if (button?.contains(event.target) && !button.contains(event.relatedTarget) && !button.matches(":focus-visible")) {
+      const button = toolbarButton(event.target);
+      if (!button || event.pointerType === "touch" || button.contains(event.relatedTarget)) return;
+      clearTimeout(tooltipTimer);
+      if (tooltipButton === button && !button.matches(":focus-visible")) {
         hideToolbarTooltip();
       }
     });
@@ -1102,6 +1110,7 @@
       if (tooltipButton === event.target) hideToolbarTooltip();
     });
     components.addEventListener("scroll", () => {
+      clearTimeout(tooltipTimer);
       if (!tooltipButton || !components.contains(tooltipButton)) return;
       if (tooltipButton.matches(":focus-visible")) showToolbarTooltip(tooltipButton);
       else hideToolbarTooltip();
