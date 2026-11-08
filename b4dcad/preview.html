@@ -517,8 +517,8 @@
     }
 
     function toolbarButton(target) {
-      const button = target.closest("button");
-      return button && !fileMenu.contains(button) ? button : null;
+      const button = target?.closest?.("button");
+      return button && toolbar.contains(button) && !fileMenu.contains(button) ? button : null;
     }
 
     function updateFinderButton() {
@@ -1099,18 +1099,21 @@
 
     toolbar.addEventListener("pointerover", (event) => {
       const button = toolbarButton(event.target);
-      if (button && button !== tooltipButton && event.pointerType !== "touch" && !button.contains(event.relatedTarget)) {
-        clearTimeout(tooltipTimer);
-        tooltipTimer = setTimeout(() => {
-          if (button.matches(":hover")) showToolbarTooltip(button);
-        }, 350);
+      if (!button || button === tooltipButton || event.pointerType === "touch" || button.contains(event.relatedTarget)) return;
+      if (tooltipButton) {
+        showToolbarTooltip(button);
+        return;
       }
+      clearTimeout(tooltipTimer);
+      tooltipTimer = setTimeout(() => {
+        if (button.matches(":hover")) showToolbarTooltip(button);
+      }, 350);
     });
     toolbar.addEventListener("pointerout", (event) => {
       const button = toolbarButton(event.target);
       if (!button || event.pointerType === "touch" || button.contains(event.relatedTarget)) return;
       clearTimeout(tooltipTimer);
-      if (tooltipButton === button && !button.matches(":focus-visible")) {
+      if (tooltipButton === button && !toolbarButton(event.relatedTarget) && !button.matches(":focus-visible")) {
         hideToolbarTooltip();
       }
     });
