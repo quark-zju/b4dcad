@@ -47,6 +47,9 @@
       stroke-linecap: round;
       stroke-linejoin: round;
     }
+    [data-mode="solid"] svg { fill-opacity: .75; }
+    [data-mode="wireframe"] svg { fill-opacity: 0; }
+    [data-mode="transparent"] svg { fill-opacity: .25; }
     #bar button[aria-pressed="true"] {
       background: var(--control-active); color: #fff; border-color: var(--control-active);
     }
@@ -290,11 +293,23 @@
       <span id="view-tools" role="group" aria-label="View">
         <span class="button-group" role="group" aria-label="Display mode">
           <span class="solid-control">
-            <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
+            <button type="button" class="icon-button" data-mode="solid" aria-label="Solid" aria-pressed="true">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <symbol id="view-cube" viewBox="0 0 16 16">
+                  <path fill="currentColor" d="M8 1.25 14.25 4.75v6.5L8 14.75l-6.25-3.5v-6.5Z"/>
+                  <path d="M1.75 4.75 8 8.25l6.25-3.5M8 8.25v6.5"/>
+                </symbol>
+                <use href="#view-cube"/>
+              </svg>
+            </button>
             <button type="button" id="toggle-ao" aria-label="Ambient occlusion (Solid only)" aria-pressed="false">AO</button>
           </span>
-          <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
-          <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
+          <button type="button" class="icon-button" data-mode="wireframe" aria-label="Wire" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#view-cube"/></svg>
+          </button>
+          <button type="button" class="icon-button" data-mode="transparent" aria-label="Translucent" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#view-cube"/></svg>
+          </button>
         </span>
         <button type="button" id="reset-view" class="icon-button" aria-label="Reset View">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7a6 6 0 1 1 1.5 5M2 3v4h4"/></svg>
