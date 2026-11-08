@@ -31,12 +31,43 @@
       display: inline-flex;
       gap: 0;
     }
-    .button-group button + button {
+    .button-group > button + button,
+    .button-group > .solid-control + button {
       margin-left: -1px;
     }
     .button-group button[aria-pressed="true"] {
       position: relative;
       z-index: 1;
+    }
+    .solid-control {
+      position: relative;
+      display: inline-flex;
+    }
+    #bar .solid-control > [data-mode="solid"] {
+      padding-right: 44px;
+    }
+    #bar #toggle-ao {
+      position: absolute;
+      right: 5px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      padding: 2px 4px;
+      font-size: 10px;
+      line-height: 1.2;
+      background: #555;
+      color: #fff;
+      border-color: #888;
+    }
+    #bar #toggle-ao[aria-pressed="true"] {
+      background: #fff;
+      color: #222;
+      border-color: #ccc;
+    }
+    #bar #toggle-ao:disabled {
+      background: #eee;
+      color: #777;
+      border-color: #ccc;
     }
     #bar .error {
       color: #8a1f11;
@@ -203,11 +234,13 @@
       </span>
       <span id="view-tools" role="group" aria-label="View">
         <span class="button-group" role="group" aria-label="Display mode">
-          <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
+          <span class="solid-control">
+            <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
+            <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
+          </span>
           <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
           <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
         </span>
-        <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
         <button type="button" id="reset-view">Reset View</button>
       </span>
     </span>
