@@ -24,6 +24,9 @@
     #bar button[aria-pressed="true"] {
       background: #222; color: #fff; border-color: #222;
     }
+    #bar button:disabled {
+      background: #eee; color: #777; border-color: #ccc; cursor: default;
+    }
     .button-group {
       display: inline-flex;
       gap: 0;
@@ -35,43 +38,10 @@
       position: relative;
       z-index: 1;
     }
-    .solid-control {
-      position: relative;
-      display: inline-flex;
-    }
-    #bar .solid-control > [data-mode="solid"] {
-      padding-right: 44px;
-    }
-    .button-group > .solid-control + button {
-      margin-left: -1px;
-    }
-    #bar #toggle-ao {
-      position: absolute;
-      right: 5px;
-      top: 50%;
-      transform: translateY(-50%);
-      z-index: 2;
-      margin: 0;
-      padding: 2px 4px;
-      font-size: 10px;
-      line-height: 1.2;
-      background: #555;
-      color: #fff;
-      border-color: #888;
-    }
-    #bar #toggle-ao[aria-pressed="true"] {
-      background: #fff;
-      color: #222;
-      border-color: #ccc;
-    }
-    #bar #toggle-ao:disabled {
-      background: #eee;
-      color: #999;
-      cursor: default;
-    }
     #bar .error {
       color: #8a1f11;
     }
+    #status:empty { display: none; }
     #error-panel {
       position: fixed;
       left: 12px;
@@ -105,12 +75,17 @@
     #tools {
       display: flex;
       gap: 8px;
+      align-items: center;
       flex-wrap: wrap;
       margin-left: auto;
     }
+    #view-tools {
+      display: inline-flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
     #source-name {
       font-weight: 600;
-      margin-right: 6px;
     }
     #source-name::after { content: " ▾"; font-size: 10px; }
     #source-name[aria-busy="true"]::after { content: " …"; }
@@ -211,7 +186,7 @@
   </script>
 </head>
 <body>
-  <nav id="bar" aria-label="Components">
+  <nav id="bar" aria-label="Preview controls">
     <div id="source-picker">
       <button type="button" id="source-name" aria-expanded="false" aria-controls="file-menu">__SOURCE_NAME__</button>
       <section id="file-menu" aria-label="Python source files" hidden>
@@ -220,18 +195,20 @@
       </section>
     </div>
     <span id="components" class="button-group"></span>
+    <button type="button" id="show-in-finder" hidden disabled>Show in Finder</button>
     <span id="tools">
-      <button type="button" id="show-in-finder" hidden disabled>Show in Finder</button>
-      <button type="button" id="reset-view">Reset View</button>
-      <button type="button" id="toggle-measure" aria-pressed="false" aria-controls="measure-panel" disabled>Measure</button>
-      <button type="button" id="toggle-tree" aria-expanded="false" aria-controls="tree-panel">Tree</button>
-      <span id="view-modes" class="button-group">
-        <span class="solid-control">
+      <span class="button-group" role="group" aria-label="Model tools">
+        <button type="button" id="toggle-tree" aria-pressed="false" aria-controls="tree-panel">Tree</button>
+        <button type="button" id="toggle-measure" aria-pressed="false" aria-controls="measure-panel" disabled>Measure</button>
+      </span>
+      <span id="view-tools" role="group" aria-label="View">
+        <span class="button-group" role="group" aria-label="Display mode">
           <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
-          <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
+          <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
+          <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
         </span>
-        <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
-        <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
+        <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
+        <button type="button" id="reset-view">Reset View</button>
       </span>
     </span>
     <span id="status" class="error" aria-live="polite"></span>
@@ -995,7 +972,7 @@
     });
     treeButton.addEventListener("click", () => {
       treePanel.hidden = !treePanel.hidden;
-      treeButton.setAttribute("aria-expanded", String(!treePanel.hidden));
+      treeButton.setAttribute("aria-pressed", String(!treePanel.hidden));
       if (treePanel.hidden) clearSelection();
       resizeViewport();
     });
