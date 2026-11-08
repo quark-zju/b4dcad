@@ -35,8 +35,6 @@
     #bar .icon-button {
       inline-size: var(--control-height);
       padding: 0;
-    }
-    #bar .icon-button:not([hidden]) {
       display: inline-grid;
       place-items: center;
     }
@@ -276,12 +274,12 @@
         </section>
       </div>
       <span id="components" class="button-group" role="group" aria-label="Parts"></span>
-      <button type="button" id="show-in-finder" class="icon-button" aria-label="Show in Finder" hidden disabled>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12.5v-8a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1v1M2 12.5l2.2-5H15l-2.2 5z"/></svg>
-      </button>
     </div>
     <span id="tools">
       <span class="button-group" role="group" aria-label="Model tools">
+        <button type="button" id="show-in-finder" class="icon-button" aria-label="Show in Finder" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12.5v-8a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1v1M2 12.5l2.2-5H15l-2.2 5z"/></svg>
+        </button>
         <button type="button" id="toggle-tree" class="icon-button" aria-label="Tree" aria-pressed="false" aria-controls="tree-panel">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4H6zM2 10h4v4H2zM10 10h4v4h-4zM8 6v2M4 10V8h8v2"/></svg>
         </button>
@@ -509,8 +507,7 @@
     }
 
     function updateFinderButton() {
-      finderButton.hidden = !canShowInFinder || activeName?.startsWith("show") === true;
-      finderButton.disabled = finderButton.hidden || !activeName || selectingFile || showingInFinder;
+      finderButton.disabled = !canShowInFinder || !activeName || activeName.startsWith("show") || selectingFile || showingInFinder;
     }
 
     function resetFinderFeedback() {
