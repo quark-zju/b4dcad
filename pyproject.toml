@@ -41,4 +41,4 @@ b4dcad-preview = "b4dcad.cli:preview_command"
 include = ["b4dcad*"]
 
 [tool.setuptools.package-data]
-b4dcad = ["*.pyi", "*.svg", "preview.html", "py.typed"]
+b4dcad = ["*.pyi", "*.svg", "preview.html", "preview-measure.js", "py.typed"]

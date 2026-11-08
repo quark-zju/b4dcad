@@ -29,6 +29,7 @@ from .preview_finder import (
 
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
+PREVIEW_MEASURE_JS = "preview-measure.js"
 CADQUERY_STL_TOLERANCE = 0.05
 DEFAULT_PREVIEW_PORT = 8765
 PREVIEW_PORT_ATTEMPTS = 32
@@ -530,6 +531,18 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             return
         if path == "/favicon.svg":
             self._send_favicon()
+            return
+        if path == f"/{PREVIEW_MEASURE_JS}":
+            data = (
+                importlib.resources.files("b4dcad")
+                .joinpath(PREVIEW_MEASURE_JS)
+                .read_bytes()
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return
         if path == "/events":
             self._send_events()

@@ -154,6 +154,19 @@
     #dimensions[hidden] {
       display: none;
     }
+    canvas.measuring { cursor: crosshair; }
+    #measure-panel, #measure-label {
+      position: absolute;
+      z-index: 1;
+      padding: 7px 10px;
+      border: 1px solid rgba(0,0,0,.16);
+      background: rgba(255,255,255,.94);
+      color: #173047;
+      font: 13px system-ui, sans-serif;
+    }
+    #measure-panel { top: 12px; left: 12px; max-width: calc(100% - 46px); }
+    #measure-panel output { display: block; white-space: pre-line; margin-top: 6px; }
+    #measure-label { transform: translate(-50%, -120%); pointer-events: none; white-space: nowrap; }
     .dimension-axis {
       font-weight: 700;
     }
@@ -210,6 +223,7 @@
     <span id="tools">
       <button type="button" id="show-in-finder" hidden disabled>Show in Finder</button>
       <button type="button" id="reset-view">Reset View</button>
+      <button type="button" id="toggle-measure" aria-pressed="false" aria-controls="measure-panel" disabled>Measure</button>
       <button type="button" id="toggle-tree" aria-expanded="false" aria-controls="tree-panel">Tree</button>
       <span id="view-modes" class="button-group">
         <span class="solid-control">
@@ -226,6 +240,15 @@
   <main id="workspace">
     <div id="viewport">
       <output id="dimensions" aria-live="polite" hidden></output>
+      <section id="measure-panel" aria-label="Measurements" hidden>
+        <label>Pick <select>
+          <option value="auto">Auto (vertex, edge, face)</option>
+          <option value="point">Point on surface</option>
+        </select></label>
+        <button type="button">Clear</button>
+        <output aria-live="polite"></output>
+      </section>
+      <span id="measure-label" aria-hidden="true" hidden></span>
     </div>
     <aside id="tree-panel" aria-label="Model construction tree" hidden>
       <button type="button" id="clear-selection">Clear selection</button>
@@ -250,6 +273,7 @@
     import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
     import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
     import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+    import { PreviewMeasure } from "./preview-measure.js";
 
     const components = document.querySelector("#components");
     const sourcePicker = document.querySelector("#source-picker");
@@ -373,6 +397,14 @@
     let assignmentsByNode = new Map();
     let activeSource = null;
     let selectingFile = false;
+    const measure = new PreviewMeasure({
+      renderer, camera, requestRender,
+      panel: document.querySelector("#measure-panel"),
+      button: document.querySelector("#toggle-measure"),
+      label: document.querySelector("#measure-label"),
+      format: formatDimension,
+      onEnable: clearSelection,
+    });
     let fileMenuRequest = 0;
     let canShowInFinder = false;
     let showingInFinder = false;
@@ -482,6 +514,7 @@
       const task = modelListRefresh.catch(() => {}).then(async () => {
         modelRequest++;
         clearSelection();
+        measure.setGeometry(null);
         const response = await fetch("/select-file", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -494,6 +527,7 @@
       try {
         await task;
       } catch (error) {
+        measure.setGeometry(currentGeometry);
         showError(`Failed to switch file: ${error.message || error}`);
       } finally {
         selectingFile = false;
@@ -534,6 +568,7 @@
         renderer.render(highlightScene, camera);
         renderer.autoClear = true;
       }
+      measure.render();
     }
 
     function clearSelection() {
@@ -554,6 +589,7 @@
 
     function selectNode(key) {
       if (!treeData.nodes[key]) return;
+      measure.setEnabled(false);
       clearSelection();
       selectedNode = key;
       const request = selectionRequest;
@@ -813,6 +849,7 @@
 
     function loadModel(name, options = {}) {
       clearSelection();
+      measure.setGeometry(null);
       const request = ++modelRequest;
       const resetCamera = options.resetCamera !== false;
       activeName = name;
@@ -832,6 +869,7 @@
         removeObject(edgeLines);
         if (currentGeometry) currentGeometry.dispose();
         currentGeometry = geometry;
+        measure.setGeometry(geometry);
         rebuildModelDisplay();
 
         const box = new THREE.Box3().setFromBufferAttribute(currentGeometry.attributes.position);
@@ -868,6 +906,7 @@
     function clearModel() {
       modelRequest++;
       clearSelection();
+      measure.setGeometry(null);
       removeObject(mesh, false);
       removeObject(edgeLines);
       if (currentGeometry) currentGeometry.dispose();
@@ -950,6 +989,8 @@
       if (event.key === "Escape" && !fileMenu.hidden) {
         closeFileMenu();
         sourceButton.focus();
+      } else if (event.key === "Escape" && measure.enabled) {
+        measure.clear();
       }
     });
     treeButton.addEventListener("click", () => {
