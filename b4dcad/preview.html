@@ -13,18 +13,41 @@
     #viewport { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
     #bar {
       --toolbar-gap: 8px;
+      --control-height: 28px;
       --control-border: #ccc;
       --control-active: #222;
       flex-shrink: 0; z-index: 1;
       font: 13px system-ui, sans-serif; color: #222;
       background: rgba(255,255,255,.88); padding: 10px 12px; border-bottom: 1px solid #ddd;
     }
-    #bar, #tools, #view-tools {
+    #bar, #model-controls, #tools, #view-tools {
       display: flex; gap: var(--toolbar-gap); align-items: center; flex-wrap: wrap;
     }
     #bar button {
       appearance: none; border: 1px solid var(--control-border); background: #fff; color: #222;
-      padding: 6px 10px; cursor: pointer; border-radius: 0;
+      min-block-size: var(--control-height); padding: 4px 7px;
+      cursor: pointer; border-radius: 0;
+    }
+    #bar button:focus-visible {
+      outline: 2px solid #0969da;
+      outline-offset: -3px;
+    }
+    #bar .icon-button {
+      inline-size: var(--control-height);
+      padding: 0;
+    }
+    #bar .icon-button:not([hidden]) {
+      display: inline-grid;
+      place-items: center;
+    }
+    .icon-button svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     #bar button[aria-pressed="true"] {
       background: var(--control-active); color: #fff; border-color: var(--control-active);
@@ -59,9 +82,11 @@
     #bar .solid-control > [data-mode="solid"] {
       align-self: stretch;
       border: 0;
+      min-block-size: calc(var(--control-height) - 2px);
       padding-inline-end: 0;
     }
     #bar #toggle-ao {
+      min-block-size: 0;
       padding: 2px 4px;
       font-size: 10px;
       line-height: 1.2;
@@ -80,6 +105,18 @@
       color: #8a1f11;
     }
     #status:empty { display: none; }
+    #toolbar-tooltip {
+      position: fixed;
+      z-index: 4;
+      box-sizing: border-box;
+      max-inline-size: min(320px, calc(100vw - 16px));
+      padding: 4px 7px;
+      background: #222;
+      color: #fff;
+      pointer-events: none;
+      overflow-wrap: anywhere;
+      white-space: pre-line;
+    }
     #error-panel {
       position: fixed;
       left: 12px;
@@ -99,26 +136,38 @@
     #error-panel[hidden] {
       display: none;
     }
+    #model-controls {
+      flex: 1 1 0;
+      min-inline-size: min(100%, 18rem);
+      flex-wrap: nowrap;
+    }
     #components {
-      display: flex;
-      flex-wrap: wrap;
-      min-width: 0;
-      max-width: 100%;
-      row-gap: 4px;
+      min-inline-size: 0;
+      overflow-x: auto;
+      scrollbar-width: thin;
     }
-    #components button {
-      max-width: 100%;
-      overflow-wrap: anywhere;
+    #components:empty { display: none; }
+    #components > button {
+      flex: none;
+      max-inline-size: 18ch;
     }
-    #tools {
-      margin-inline-start: auto;
+    .toolbar-name {
+      display: block;
+      min-inline-size: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     #source-name {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-inline-size: 100%;
       font-weight: 600;
     }
-    #source-name::after { content: " ▾"; font-size: 10px; }
-    #source-name[aria-busy="true"]::after { content: " …"; }
-    #source-picker { position: relative; min-width: 0; }
+    #source-name::after { content: "▾"; flex: none; font-size: 10px; }
+    #source-name[aria-busy="true"]::after { content: "…"; }
+    #source-picker { position: relative; min-inline-size: 0; max-inline-size: min(12rem, 44%); }
     #file-menu {
       position: absolute;
       top: calc(100% + 8px);
@@ -216,33 +265,46 @@
 </head>
 <body>
   <nav id="bar" aria-label="Preview controls">
-    <div id="source-picker">
-      <button type="button" id="source-name" aria-expanded="false" aria-controls="file-menu">__SOURCE_NAME__</button>
-      <section id="file-menu" aria-label="Python source files" hidden>
-        <div id="file-root"></div>
-        <div id="file-tree"></div>
-      </section>
+    <div id="model-controls" role="group" aria-label="File and parts">
+      <div id="source-picker">
+        <button type="button" id="source-name" aria-label="Select source file" aria-expanded="false" aria-controls="file-menu">
+          <span class="toolbar-name">__SOURCE_NAME__</span>
+        </button>
+        <section id="file-menu" aria-label="Python source files" hidden>
+          <div id="file-root"></div>
+          <div id="file-tree"></div>
+        </section>
+      </div>
+      <span id="components" class="button-group" role="group" aria-label="Parts"></span>
+      <button type="button" id="show-in-finder" class="icon-button" aria-label="Show in Finder" hidden disabled>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12.5v-8a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1v1M2 12.5l2.2-5H15l-2.2 5z"/></svg>
+      </button>
     </div>
-    <span id="components" class="button-group"></span>
-    <button type="button" id="show-in-finder" hidden disabled>Show in Finder</button>
     <span id="tools">
       <span class="button-group" role="group" aria-label="Model tools">
-        <button type="button" id="toggle-tree" aria-pressed="false" aria-controls="tree-panel">Tree</button>
-        <button type="button" id="toggle-measure" aria-pressed="false" aria-controls="measure-panel" disabled>Measure</button>
+        <button type="button" id="toggle-tree" class="icon-button" aria-label="Tree" aria-pressed="false" aria-controls="tree-panel">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4H6zM2 10h4v4H2zM10 10h4v4h-4zM8 6v2M4 10V8h8v2"/></svg>
+        </button>
+        <button type="button" id="toggle-measure" class="icon-button" aria-label="Measure" aria-pressed="false" aria-controls="measure-panel" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m1.5 10.5 9-9 4 4-9 9zM4 8l1.5 1.5M6.5 5.5 8 7M9 3l1.5 1.5"/></svg>
+        </button>
       </span>
       <span id="view-tools" role="group" aria-label="View">
         <span class="button-group" role="group" aria-label="Display mode">
           <span class="solid-control">
             <button type="button" data-mode="solid" aria-pressed="true">Solid</button>
-            <button type="button" id="toggle-ao" aria-label="Ambient occlusion" aria-pressed="false" title="Ambient occlusion adds shading inside corners and holes (Solid mode)">AO</button>
+            <button type="button" id="toggle-ao" aria-label="Ambient occlusion (Solid only)" aria-pressed="false">AO</button>
           </span>
           <button type="button" data-mode="wireframe" aria-pressed="false">Wire</button>
           <button type="button" data-mode="transparent" aria-pressed="false">Translucent</button>
         </span>
-        <button type="button" id="reset-view">Reset View</button>
+        <button type="button" id="reset-view" class="icon-button" aria-label="Reset View">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7a6 6 0 1 1 1.5 5M2 3v4h4"/></svg>
+        </button>
       </span>
     </span>
     <span id="status" class="error" aria-live="polite"></span>
+    <span id="toolbar-tooltip" aria-hidden="true" hidden></span>
   </nav>
   <pre id="error-panel" hidden></pre>
   <main id="workspace">
@@ -283,9 +345,12 @@
     import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
     import { PreviewMeasure } from "./preview-measure.js";
 
+    const toolbar = document.querySelector("#bar");
+    const toolbarTooltip = document.querySelector("#toolbar-tooltip");
     const components = document.querySelector("#components");
     const sourcePicker = document.querySelector("#source-picker");
     const sourceButton = document.querySelector("#source-name");
+    const sourceName = sourceButton.querySelector(".toolbar-name");
     const fileMenu = document.querySelector("#file-menu");
     const fileTree = document.querySelector("#file-tree");
     const status = document.querySelector("#status");
@@ -416,6 +481,29 @@
     let fileMenuRequest = 0;
     let canShowInFinder = false;
     let showingInFinder = false;
+    let tooltipButton = null;
+
+    function showToolbarTooltip(button) {
+      const label = button.getAttribute("aria-label") || button.textContent.trim();
+      const detail = button.dataset.tooltipDetail;
+      toolbarTooltip.textContent = detail ? `${label}\n${detail}` : label;
+      toolbarTooltip.hidden = false;
+      tooltipButton = button;
+      const { left, bottom } = button.getBoundingClientRect();
+      const maxLeft = document.documentElement.clientWidth - toolbarTooltip.offsetWidth - 8;
+      toolbarTooltip.style.left = `${Math.max(8, Math.min(left, maxLeft))}px`;
+      toolbarTooltip.style.top = `${bottom + 4}px`;
+    }
+
+    function hideToolbarTooltip() {
+      toolbarTooltip.hidden = true;
+      tooltipButton = null;
+    }
+
+    function toolbarButton(target) {
+      const button = target.closest("button");
+      return button && !fileMenu.contains(button) ? button : null;
+    }
 
     function updateFinderButton() {
       finderButton.hidden = !canShowInFinder || activeName?.startsWith("show") === true;
@@ -423,7 +511,8 @@
     }
 
     function resetFinderFeedback() {
-      finderButton.title = "Export non-show models and reveal the selected part in Finder";
+      delete finderButton.dataset.tooltipDetail;
+      if (tooltipButton === finderButton) showToolbarTooltip(finderButton);
     }
 
     async function showInFinder() {
@@ -443,7 +532,8 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         if (source === activeSource && name === activeName && version === treeVersion) {
-          finderButton.title = result.path;
+          finderButton.dataset.tooltipDetail = result.path;
+          if (tooltipButton === finderButton) showToolbarTooltip(finderButton);
         }
       } catch (error) {
         if (source === activeSource && name === activeName && version === treeVersion) {
@@ -793,9 +883,13 @@
     }
 
     function setActiveButton(name) {
+      let activeButton;
       for (const button of components.querySelectorAll("button")) {
-        button.setAttribute("aria-pressed", String(button.dataset.name === name));
+        const active = button.dataset.name === name;
+        button.setAttribute("aria-pressed", String(active));
+        if (active) activeButton = button;
       }
+      activeButton?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 
     function formatDimension(value) {
@@ -930,6 +1024,7 @@
     }
 
     function applyPreviewState(state, options = {}) {
+      hideToolbarTooltip();
       canShowInFinder = state.can_show_in_finder === true;
       const sourceChanged = state.source !== activeSource;
       const preserveView = options.preserveView === true && !sourceChanged;
@@ -939,9 +1034,9 @@
         closeFileMenu();
       }
       activeSource = state.source;
-      sourceButton.textContent = state.source.split("/").pop();
-      sourceButton.title = state.source;
-      document.title = sourceButton.textContent;
+      sourceName.textContent = state.source.split("/").pop();
+      sourceButton.setAttribute("aria-label", `Select source file: ${state.source}`);
+      document.title = sourceName.textContent;
       clearSelection();
       treeData = state.tree || { nodes: {}, roots: {}, assignments: [] };
       treeVersion = state.tree_version;
@@ -956,7 +1051,10 @@
         const button = document.createElement("button");
         button.type = "button";
         button.dataset.name = name;
-        button.textContent = name;
+        const label = document.createElement("span");
+        label.className = "toolbar-name";
+        label.textContent = name;
+        button.append(label);
         button.addEventListener("click", () => loadModel(name));
         components.append(button);
       }
@@ -984,9 +1082,36 @@
 
     refreshModelList();
 
+    toolbar.addEventListener("pointerover", (event) => {
+      const button = toolbarButton(event.target);
+      if (button && event.pointerType !== "touch" && !button.contains(event.relatedTarget)) {
+        showToolbarTooltip(button);
+      }
+    });
+    toolbar.addEventListener("pointerout", (event) => {
+      const button = tooltipButton;
+      if (button?.contains(event.target) && !button.contains(event.relatedTarget) && !button.matches(":focus-visible")) {
+        hideToolbarTooltip();
+      }
+    });
+    toolbar.addEventListener("focusin", (event) => {
+      const button = toolbarButton(event.target);
+      if (button?.matches(":focus-visible")) showToolbarTooltip(button);
+    });
+    toolbar.addEventListener("focusout", (event) => {
+      if (tooltipButton === event.target) hideToolbarTooltip();
+    });
+    components.addEventListener("scroll", () => {
+      if (!tooltipButton || !components.contains(tooltipButton)) return;
+      if (tooltipButton.matches(":focus-visible")) showToolbarTooltip(tooltipButton);
+      else hideToolbarTooltip();
+    });
+    window.addEventListener("resize", hideToolbarTooltip);
+
     resetViewButton.addEventListener("click", resetView);
     finderButton.addEventListener("click", showInFinder);
     sourceButton.addEventListener("click", () => {
+      hideToolbarTooltip();
       if (fileMenu.hidden) openFileMenu();
       else closeFileMenu();
     });
@@ -994,6 +1119,7 @@
       if (!sourcePicker.contains(event.target)) closeFileMenu();
     });
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideToolbarTooltip();
       if (event.key === "Escape" && !fileMenu.hidden) {
         closeFileMenu();
         sourceButton.focus();
