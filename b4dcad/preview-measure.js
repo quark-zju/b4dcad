@@ -374,6 +374,16 @@ export class PreviewMeasure {
     }
   }
 
+  featureBounds({ kind, point, ends, triangles }) {
+    const box = new THREE.Box3();
+    if (kind === "point") return box.set(point, point);
+    if (kind === "edge") return box.setFromPoints(ends);
+    for (const { ids } of triangles) {
+      for (const id of ids) box.expandByPoint(this.topology.vertices[id]);
+    }
+    return box;
+  }
+
   updateResult() {
     this.clearLayer(this.resultLayer);
     this.labelAnchor = null;
@@ -383,11 +393,16 @@ export class PreviewMeasure {
     const length = (n) => `${format(n)} mm`;
     const coords = ({ x, y, z }) => `X ${format(x)} · Y ${format(y)} · Z ${format(z)} mm`;
     const colors = [0x006bc8, 0x9839c7];
-    const rows = this.selections.map(({ feature, point }, index) => {
+    const rows = this.selections.flatMap(({ feature, point }, index) => {
       this.drawFeature(this.resultLayer, feature, colors[index]);
-      if (feature.kind === "point") return `Point ${index + 1} · ${coords(point)}`;
-      if (feature.kind === "face") return `Face ${index + 1} · ${format(feature.area)} mm²`;
-      return `Edge ${index + 1} · ${length(feature.ends[0].distanceTo(feature.ends[1]))}`;
+      const { min, max } = this.featureBounds(feature);
+      const bounds = ["x", "y", "z"].map((axis) =>
+        `${axis}min ${format(min[axis])}  ${axis}max ${format(max[axis])}`
+      );
+      const bbox = `BBox · ${bounds.join(" · ")} mm`;
+      if (feature.kind === "point") return [`Point ${index + 1} · ${coords(point)}`, bbox];
+      if (feature.kind === "face") return [`Face ${index + 1} · ${format(feature.area)} mm²`, bbox];
+      return [`Edge ${index + 1} · ${length(feature.ends[0].distanceTo(feature.ends[1]))}`, bbox];
     });
     let ends;
     let label;
