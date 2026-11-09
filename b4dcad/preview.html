@@ -9,7 +9,7 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f0; }
     body { display: flex; flex-direction: column; }
     canvas { display: block; }
-    #workspace { display: flex; flex: 1; min-height: 0; }
+    #workspace { position: relative; display: flex; flex: 1; min-height: 0; }
     #viewport { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
     #bar {
       --toolbar-gap: 8px;
@@ -23,6 +23,7 @@
     #bar, #model-controls, #tools, #view-tools {
       display: flex; gap: var(--toolbar-gap); align-items: center; flex-wrap: wrap;
     }
+    #bar, #model-controls { align-items: flex-start; }
     #bar button {
       appearance: none; border: 1px solid var(--control-border); background: #fff; color: #222;
       min-block-size: var(--control-height); padding: 4px 7px;
@@ -119,10 +120,10 @@
       white-space: pre-line;
     }
     #error-panel {
-      position: fixed;
+      position: absolute;
       left: 12px;
       right: 12px;
-      top: 58px;
+      top: 12px;
       z-index: 2;
       max-height: 42vh;
       overflow: auto;
@@ -144,13 +145,14 @@
     }
     #components {
       min-inline-size: 0;
-      overflow-x: auto;
-      scrollbar-width: thin;
+      flex-wrap: wrap;
+      gap: calc(var(--toolbar-gap) / 2);
     }
     #components:empty { display: none; }
     #components > button {
       flex: none;
-      max-inline-size: 18ch;
+      max-inline-size: min(18ch, 100%);
+      margin-inline-start: 0;
     }
     .toolbar-name {
       display: block;
@@ -319,8 +321,8 @@
     <span id="status" class="error" aria-live="polite"></span>
     <span id="toolbar-tooltip" aria-hidden="true" hidden></span>
   </nav>
-  <pre id="error-panel" hidden></pre>
   <main id="workspace">
+    <pre id="error-panel" hidden></pre>
     <div id="viewport">
       <output id="dimensions" aria-live="polite" hidden></output>
       <section id="measure-panel" aria-label="Measurements" hidden>
@@ -898,13 +900,9 @@
     }
 
     function setActiveButton(name) {
-      let activeButton;
       for (const button of components.querySelectorAll("button")) {
-        const active = button.dataset.name === name;
-        button.setAttribute("aria-pressed", String(active));
-        if (active) activeButton = button;
+        button.setAttribute("aria-pressed", String(button.dataset.name === name));
       }
-      activeButton?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 
     function formatDimension(value) {
@@ -1123,12 +1121,6 @@
     });
     toolbar.addEventListener("focusout", (event) => {
       if (tooltipButton === event.target) hideToolbarTooltip();
-    });
-    components.addEventListener("scroll", () => {
-      clearTimeout(tooltipTimer);
-      if (!tooltipButton || !components.contains(tooltipButton)) return;
-      if (tooltipButton.matches(":focus-visible")) showToolbarTooltip(tooltipButton);
-      else hideToolbarTooltip();
     });
     window.addEventListener("resize", hideToolbarTooltip);
 
