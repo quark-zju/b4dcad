@@ -146,13 +146,15 @@
     #components {
       min-inline-size: 0;
       flex-wrap: wrap;
-      gap: calc(var(--toolbar-gap) / 2);
+      row-gap: calc(var(--toolbar-gap) / 2);
+      /* Offset the border overlap at the start of each wrapped row. */
+      padding-inline-start: 1px;
     }
     #components:empty { display: none; }
     #components > button {
       flex: none;
       max-inline-size: min(18ch, 100%);
-      margin-inline-start: 0;
+      margin-inline-start: -1px;
     }
     .toolbar-name {
       display: block;
