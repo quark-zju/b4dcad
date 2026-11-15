@@ -138,13 +138,14 @@ function screenPoint(point, camera, width, height) {
 }
 
 export class PreviewMeasure {
-  constructor({ renderer, camera, panel, button, label, format, requestRender, onEnable }) {
+  constructor({ renderer, camera, panel, button, label, format, axisColors, requestRender, onEnable }) {
     this.renderer = renderer;
     this.camera = camera;
     this.panel = panel;
     this.button = button;
     this.label = label;
     this.format = format;
+    this.axisColors = axisColors;
     this.requestRender = requestRender;
     this.onEnable = onEnable;
     this.output = panel.querySelector("output");
@@ -384,6 +385,14 @@ export class PreviewMeasure {
     return box;
   }
 
+  axisLabel(axis, prefix = "") {
+    const label = document.createElement("span");
+    label.className = "dimension-axis";
+    label.style.color = `#${this.axisColors[axis].toString(16).padStart(6, "0")}`;
+    label.textContent = prefix + axis.toUpperCase();
+    return label;
+  }
+
   updateResult() {
     this.clearLayer(this.resultLayer);
     this.labelAnchor = null;
@@ -391,16 +400,28 @@ export class PreviewMeasure {
     const [first, second] = this.selections;
     const format = this.format;
     const length = (n) => `${format(n)} mm`;
-    const coords = ({ x, y, z }) => `X ${format(x)} · Y ${format(y)} · Z ${format(z)} mm`;
+    const axes = ["x", "y", "z"];
+    const row = (...parts) => {
+      const fragment = document.createDocumentFragment();
+      fragment.append(...parts);
+      return fragment;
+    };
+    const coords = (point) => row(...axes.flatMap((axis, index) => [
+      index ? " · " : "", this.axisLabel(axis), ` ${format(point[axis])}`,
+    ]), " mm");
     const colors = [0x006bc8, 0x9839c7];
+    const boxes = this.selections.map(({ feature }) => this.featureBounds(feature));
     const rows = this.selections.flatMap(({ feature, point }, index) => {
       this.drawFeature(this.resultLayer, feature, colors[index]);
-      const { min, max } = this.featureBounds(feature);
-      const bounds = ["x", "y", "z"].map((axis) =>
-        `${axis}min ${format(min[axis])}  ${axis}max ${format(max[axis])}`
-      );
-      const bbox = `BBox · ${bounds.join(" · ")} mm`;
-      if (feature.kind === "point") return [`Point ${index + 1} · ${coords(point)}`, bbox];
+      const { min, max } = boxes[index];
+      const bounds = axes.flatMap((axis, index) => {
+        const value = min[axis] === max[axis]
+          ? format(min[axis])
+          : `${format(min[axis])} - ${format(max[axis])} (+${format(max[axis] - min[axis])})`;
+        return [index ? " · " : "", this.axisLabel(axis), `: ${value} mm`];
+      });
+      const bbox = row("BBox · ", ...bounds);
+      if (feature.kind === "point") return [row(`Point ${index + 1} · `, coords(point)), bbox];
       if (feature.kind === "face") return [`Face ${index + 1} · ${format(feature.area)} mm²`, bbox];
       return [`Edge ${index + 1} · ${length(feature.ends[0].distanceTo(feature.ends[1]))}`, bbox];
     });
@@ -412,7 +433,7 @@ export class PreviewMeasure {
       if (a.kind === "point" && b.kind === "point") {
         ends = [first.point, second.point];
         label = length(first.point.distanceTo(second.point));
-        rows.push(`Distance · ${label}`, `Δ ${coords(second.point.clone().sub(first.point))}`);
+        rows.push(`Distance · ${label}`, row("Δ ", coords(second.point.clone().sub(first.point))));
       } else if (a.kind === "face" && b.kind === "face" && Math.abs(a.normal.dot(b.normal)) >= 1 - NORMAL_TOLERANCE) {
         const offset = second.point.clone().sub(first.point).dot(b.normal);
         ends = [first.point, first.point.clone().addScaledVector(b.normal, offset)];
@@ -420,6 +441,11 @@ export class PreviewMeasure {
         rows.push(`Plane spacing · ${label}`);
       } else {
         rows.push("Select two points or two parallel faces to measure distance.");
+      }
+      for (const axis of axes) {
+        if (boxes.every(({ min, max }) => min[axis] === max[axis])) {
+          rows.push(row(this.axisLabel(axis, "Δ"), `: ${length(Math.abs(boxes[1].min[axis] - boxes[0].min[axis]))}`));
+        }
       }
     } else if (first?.feature.kind === "edge") {
       ends = first.feature.ends;
@@ -435,9 +461,11 @@ export class PreviewMeasure {
       this.labelAnchor = ends[0].clone().lerp(ends[1], 0.5);
       this.label.textContent = label;
     }
-    this.output.textContent = rows.join("\n") || (this.surface
-      ? "Click up to two features. Esc clears the selection."
-      : "Waiting for model geometry.");
+    this.output.replaceChildren(...(rows.length
+      ? rows.flatMap((content, index) => index ? ["\n", content] : [content])
+      : [this.surface
+        ? "Click up to two features. Esc clears the selection."
+        : "Waiting for model geometry."]));
     this.requestRender();
   }
 
