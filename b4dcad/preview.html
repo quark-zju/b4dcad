@@ -223,7 +223,15 @@
       font: 13px system-ui, sans-serif;
     }
     #measure-panel { top: 12px; left: 12px; max-width: calc(100% - 46px); }
-    #measure-panel output { display: block; white-space: pre-line; margin-top: 6px; }
+    #measure-panel output { display: block; margin-top: 8px; line-height: 1.5; }
+    .measure-group + .measure-group {
+      border-top: 1px solid rgba(23,48,71,.14);
+      margin-top: 8px;
+      padding-top: 8px;
+    }
+    .measure-object > :first-child { font-weight: 600; }
+    .measure-hint { color: #65717c; font-size: 12px; }
+    .measure-group + .measure-hint { margin-top: 8px; }
     #measure-label { transform: translate(-50%, -120%); pointer-events: none; white-space: nowrap; }
     .dimension-axis {
       font-weight: 700;
