@@ -119,3 +119,13 @@ supported = part.fix_horizontal_overhangs(
     directions="<X >X",
 )
 ```
+
+标记函数为需渲染:
+
+```
+@b4dcad.part
+def my_part():
+    ...
+
+# 类似于 my_part = my_part() 但没有 import 时副作用
+```

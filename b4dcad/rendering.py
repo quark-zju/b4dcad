@@ -3,8 +3,15 @@
 import sys
 
 _RENDERING_MARKER = object()
+_FUNCTION_PART_MARKER = "_b4d_part"
 
 
 def is_rendering():
     """Return whether the caller belongs to the model script being rendered."""
     return sys._getframe(1).f_globals.get("__b4dcad_rendering__") is _RENDERING_MARKER
+
+
+def part(f, /):
+    """Mark a function as a part"""
+    setattr(f, _FUNCTION_PART_MARKER, True)
+    return f

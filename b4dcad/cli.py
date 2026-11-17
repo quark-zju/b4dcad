@@ -17,8 +17,6 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from .core import Shape, Solid
-from .rendering import _RENDERING_MARKER
-from .preview_trace import PreviewTrace
 from .preview_files import PreviewFiles
 from .preview_finder import (
     DEFAULT_FINDER_DIRECTORY,
@@ -26,6 +24,8 @@ from .preview_finder import (
     reveal_in_finder,
     write_finder_exports,
 )
+from .preview_trace import PreviewTrace
+from .rendering import _FUNCTION_PART_MARKER, _RENDERING_MARKER
 
 PREVIEW_HTML = "preview.html"
 PREVIEW_FAVICON = "preview-favicon.svg"
@@ -62,7 +62,11 @@ def _is_cadquery_workplane(value):
 
 
 def is_model(value):
-    return isinstance(value, Solid) or _is_cadquery_workplane(value)
+    return (
+        isinstance(value, Solid)
+        or _is_cadquery_workplane(value)
+        or (callable(value) and getattr(value, _FUNCTION_PART_MARKER, False))
+    )
 
 
 def _require_model(value, name):
@@ -78,6 +82,8 @@ def _require_model(value, name):
 
 
 def model_stl_bytes(model):
+    if callable(model) and getattr(model, _FUNCTION_PART_MARKER, False):
+        model = model()
     if isinstance(model, Solid):
         return model.stl()
 
