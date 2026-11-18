@@ -209,6 +209,7 @@
     #dimensions[hidden] {
       display: none;
     }
+    .print-estimate { pointer-events: auto; }
     canvas.measuring { cursor: crosshair; }
     #measure-panel, #measure-label {
       position: absolute;
@@ -476,6 +477,7 @@
     let mesh = null;
     let edgeLines = null;
     let currentGeometry = null;
+    let currentPrintEstimateUrl = null;
     let activeName = null;
     let modelSize = 1;
     let modelCenter = new THREE.Vector3(0, 0, 0);
@@ -733,7 +735,12 @@
         const material = new THREE.MeshBasicMaterial({ color: 0x21b9ec, transparent: true, opacity: 0.65, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
         highlight = new THREE.Mesh(geometry, material);
         highlightScene.add(highlight);
-        updateDimensions(new THREE.Box3().setFromBufferAttribute(geometry.attributes.position), geometry, treeData.nodes[key].names.join(" / "));
+        updateDimensions(
+          new THREE.Box3().setFromBufferAttribute(geometry.attributes.position),
+          geometry,
+          treeData.nodes[key].names.join(" / "),
+          printEstimateUrl(treeVersion, "tree", key),
+        );
         requestRender();
       }, undefined, (error) => {
         if (request === selectionRequest) {
@@ -948,7 +955,24 @@
       return Math.abs(signedVolume);
     }
 
-    function updateDimensions(box, geometry = currentGeometry, label = null) {
+    function printEstimateUrl(version, kind, key) {
+      return `/print-estimate/${version}/${kind}/${encodeURIComponent(key)}.json`;
+    }
+
+    async function updatePrintEstimate(line, url) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const { pla_g, petg_g } = await response.json();
+        const grams = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+        const format = (value) => value > 0 && value < 0.01 ? "<0.01" : grams.format(value);
+        line.textContent = `Print ≈ ${format(pla_g)} g PLA / ${format(petg_g)} g PETG`;
+      } catch {
+        line.textContent = "Print estimate unavailable";
+      }
+    }
+
+    function updateDimensions(box, geometry = currentGeometry, label = null, estimateUrl = currentPrintEstimateUrl) {
       const size = box.getSize(new THREE.Vector3());
       dimensions.replaceChildren(
         dimensionFragment("x", size.x),
@@ -966,6 +990,15 @@
       const volume = document.createElement("div");
       volume.textContent = `Volume ≈ ${formatDimension(estimateVolume(geometry, box.getCenter(new THREE.Vector3())))} mm³`;
       dimensions.append(volume);
+      if (estimateUrl) {
+        const estimate = document.createElement("div");
+        estimate.className = "print-estimate";
+        estimate.setAttribute("role", "status");
+        estimate.title = "Model only, in the displayed orientation. 0.2 mm layers, 0.8 mm walls, 5 top layers, 3 bottom layers, 15% infill.";
+        estimate.textContent = "Estimating print material…";
+        dimensions.append(estimate);
+        updatePrintEstimate(estimate, estimateUrl);
+      }
       dimensions.hidden = false;
     }
 
@@ -980,6 +1013,7 @@
       setActiveButton(name);
       rebuildTree();
       const url = `/model/${encodeURIComponent(name)}.stl?ts=${Date.now()}`;
+      const estimateUrl = printEstimateUrl(treeVersion, "model", name);
       loader.load(url, (geometry) => {
         if (request !== modelRequest) {
           geometry.dispose();
@@ -991,6 +1025,7 @@
         removeObject(edgeLines);
         if (currentGeometry) currentGeometry.dispose();
         currentGeometry = geometry;
+        currentPrintEstimateUrl = estimateUrl;
         measure.setGeometry(geometry);
         rebuildModelDisplay();
 
@@ -1035,6 +1070,7 @@
       mesh = null;
       edgeLines = null;
       currentGeometry = null;
+      currentPrintEstimateUrl = null;
       activeName = null;
       resetFinderFeedback();
       updateFinderButton();

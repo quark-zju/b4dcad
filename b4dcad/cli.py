@@ -11,12 +11,15 @@ import threading
 import traceback
 import webbrowser
 from collections import OrderedDict
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from html import escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from .core import Shape, Solid
+from manifold3d import Manifold
+
+from .core import Shape, Solid, load_stl
 from .preview_files import PreviewFiles
 from .preview_finder import (
     DEFAULT_FINDER_DIRECTORY,
@@ -24,6 +27,7 @@ from .preview_finder import (
     reveal_in_finder,
     write_finder_exports,
 )
+from .preview_print import print_material_estimate
 from .preview_trace import PreviewTrace
 from .rendering import _FUNCTION_PART_MARKER, _RENDERING_MARKER
 
@@ -201,6 +205,14 @@ def build_preview_scene(script, name=None, run_name=None):
     return cache, trace, trace.data(models)
 
 
+def _estimate_preview_material(model: Solid | Manifold | bytes) -> dict[str, float]:
+    if isinstance(model, bytes):
+        model = load_stl(data=model)
+    if isinstance(model, Solid):
+        model = model.manifold
+    return print_material_estimate(model)
+
+
 def write_cached_stls(script, directory, cache):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -327,9 +339,13 @@ class PreviewServer(ThreadingHTTPServer):
         self._tree = {"nodes": {}, "roots": {}, "assignments": []}
         self._tree_stls = {}
         self._tree_version = 0
+        self._print_estimates = {}
         self._error = None
         self._change = threading.Condition()
         self._stop_watcher = threading.Event()
+        self._print_worker = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="preview-print"
+        )
         super().__init__(address, handler)
         self.script = str(Path(script).resolve())
         self.files = PreviewFiles(self.script)
@@ -370,6 +386,7 @@ class PreviewServer(ThreadingHTTPServer):
             self._tree = tree
             self._tree_stls = {}
             self._tree_version += 1
+            self._clear_print_estimates()
             self._error = None
         if write_files and self.write_stl:
             write_cached_stls(self.script, self.write_stl, cache)
@@ -436,6 +453,7 @@ class PreviewServer(ThreadingHTTPServer):
                 self._tree = {"nodes": {}, "roots": {}, "assignments": []}
                 self._tree_stls = {}
                 self._tree_version += 1
+                self._clear_print_estimates()
                 self._error = None
             self._file_signatures = self._current_file_signatures()
             self.rebuild_cache(write_files=bool(self.write_stl))
@@ -465,6 +483,39 @@ class PreviewServer(ThreadingHTTPServer):
                     return None
                 self._tree_stls[key] = data
             return self._tree_stls[key]
+
+    def _clear_print_estimates(self):
+        for future in self._print_estimates.values():
+            future.cancel()
+        self._print_estimates.clear()
+
+    def print_estimate(self, version, kind, key):
+        with self._cache_lock:
+            if version != self._tree_version or self._trace is None:
+                return None
+            if kind == "model" and key in self._stl_cache:
+                node = self._tree["roots"].get(key)
+                model = (
+                    self._trace.objects[node]
+                    if node is not None
+                    else self._stl_cache[key]
+                )
+                cache_key = ("tree", node) if node is not None else (kind, key)
+            elif kind == "tree" and key in self._tree["nodes"]:
+                model = self._trace.objects[key]
+                cache_key = (kind, key)
+            else:
+                return None
+            future = self._print_estimates.get(cache_key)
+            if future is None:
+                future = self._print_worker.submit(_estimate_preview_material, model)
+                self._print_estimates[cache_key] = future
+        try:
+            result = future.result()
+        except CancelledError:
+            return None
+        with self._cache_lock:
+            return result if version == self._tree_version else None
 
     def _watch(self):
         while not self._stop_watcher.wait(self.poll_interval):
@@ -526,6 +577,7 @@ class PreviewServer(ThreadingHTTPServer):
         self._stop_watcher.set()
         with self._change:
             self._change.notify_all()
+        self._print_worker.shutdown(wait=False, cancel_futures=True)
         super().server_close()
 
 
@@ -561,6 +613,25 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             return
         if path == "/files.json":
             self._send_json(self.server.files.tree(self.server.script))
+            return
+        if path.startswith("/print-estimate/") and path.endswith(".json"):
+            parts = path.split("/")
+            if len(parts) != 5 or not parts[2].isdigit():
+                self.send_error(404)
+                return
+            try:
+                estimate = self.server.print_estimate(
+                    int(parts[2]), parts[3], unquote(parts[4][:-5])
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=422)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=500)
+            else:
+                if estimate is None:
+                    self.send_error(404, "Unknown or outdated model")
+                else:
+                    self._send_json(estimate)
             return
         if path.startswith("/tree/") and path.endswith(".stl"):
             parts = path.split("/")
