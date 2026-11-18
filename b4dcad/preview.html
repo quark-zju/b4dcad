@@ -48,7 +48,7 @@
       stroke-linecap: round;
       stroke-linejoin: round;
     }
-    [data-mode="solid"] svg { fill-opacity: .75; }
+    [data-mode="solid-ao"] use, [data-mode="solid"] use { fill-opacity: .75; }
     [data-mode="wireframe"] svg { fill-opacity: 0; }
     [data-mode="transparent"] svg { fill-opacity: .25; }
     #bar button[aria-pressed="true"] {
@@ -64,44 +64,9 @@
     .button-group > * + * {
       margin-inline-start: -1px;
     }
-    .button-group > button[aria-pressed="true"],
-    .solid-control:has(> [data-mode="solid"][aria-pressed="true"]) {
+    .button-group > button[aria-pressed="true"] {
       position: relative;
       z-index: 1;
-    }
-    .solid-control {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--toolbar-gap);
-      padding-inline-end: var(--toolbar-gap);
-      border: 1px solid var(--control-border);
-      background: #fff;
-    }
-    .solid-control:has(> [data-mode="solid"][aria-pressed="true"]) {
-      background: var(--control-active);
-      border-color: var(--control-active);
-    }
-    #bar .solid-control > [data-mode="solid"] {
-      align-self: stretch;
-      border: 0;
-      min-block-size: calc(var(--control-height) - 2px);
-      padding-inline-end: 0;
-    }
-    #bar #toggle-ao {
-      min-block-size: 0;
-      padding: 2px 4px;
-      font-size: 10px;
-      line-height: 1.2;
-    }
-    #bar #toggle-ao:enabled {
-      background: #555;
-      color: #fff;
-      border-color: #888;
-    }
-    #bar #toggle-ao:enabled[aria-pressed="true"] {
-      background: #fff;
-      color: #222;
-      border-color: var(--control-border);
     }
     #bar .error {
       color: #8a1f11;
@@ -302,18 +267,21 @@
       </span>
       <span id="view-tools" role="group" aria-label="View">
         <span class="button-group" role="group" aria-label="Display mode">
-          <span class="solid-control">
-            <button type="button" class="icon-button" data-mode="solid" aria-label="Solid" aria-pressed="true">
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <symbol id="view-cube" viewBox="0 0 16 16">
-                  <path fill="currentColor" d="M8 1.25 14.25 4.75v6.5L8 14.75l-6.25-3.5v-6.5Z"/>
-                  <path d="M1.75 4.75 8 8.25l6.25-3.5M8 8.25v6.5"/>
-                </symbol>
-                <use href="#view-cube"/>
-              </svg>
-            </button>
-            <button type="button" id="toggle-ao" aria-label="Ambient occlusion (Solid only)" aria-pressed="false">AO</button>
-          </span>
+          <button type="button" class="icon-button" data-mode="solid-ao" aria-label="Solid w/AO" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <ellipse cx="8" cy="14.25" rx="7.25" ry="1.5" fill="currentColor" fill-opacity=".3" stroke="none"/>
+              <use href="#view-cube" transform="translate(1 0) scale(.875)"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-button" data-mode="solid" aria-label="Solid" aria-pressed="true">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <symbol id="view-cube" viewBox="0 0 16 16">
+                <path fill="currentColor" d="M8 1.25 14.25 4.75v6.5L8 14.75l-6.25-3.5v-6.5Z"/>
+                <path d="M1.75 4.75 8 8.25l6.25-3.5M8 8.25v6.5"/>
+              </symbol>
+              <use href="#view-cube"/>
+            </svg>
+          </button>
           <button type="button" class="icon-button" data-mode="wireframe" aria-label="Wire" aria-pressed="false">
             <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#view-cube"/></svg>
           </button>
@@ -380,7 +348,6 @@
     const errorPanel = document.querySelector("#error-panel");
     const resetViewButton = document.querySelector("#reset-view");
     const finderButton = document.querySelector("#show-in-finder");
-    const aoButton = document.querySelector("#toggle-ao");
     const treeButton = document.querySelector("#toggle-tree");
     const treePanel = document.querySelector("#tree-panel");
     const treeContent = document.querySelector("#tree-content");
@@ -483,7 +450,6 @@
     let modelCenter = new THREE.Vector3(0, 0, 0);
     let modelExtentFromOrigin = 1;
     let viewMode = "solid";
-    let aoEnabled = false;
     let framePending = false;
     let treeData = { nodes: {}, roots: {}, assignments: [] };
     let treeVersion = null;
@@ -671,7 +637,7 @@
     }
 
     function renderPreview() {
-      if (!aoEnabled || viewMode !== "solid" || !mesh) {
+      if (viewMode !== "solid-ao" || !mesh) {
         renderer.render(scene, camera);
       } else {
         // SSAOPass r164 caches camera uniforms; refresh after clipping or aspect changes.
@@ -857,6 +823,10 @@
       object.material.dispose();
     }
 
+    function isSolidMode(mode) {
+      return mode === "solid" || mode === "solid-ao";
+    }
+
     function rebuildModelDisplay() {
       removeObject(mesh, false);
       removeObject(edgeLines);
@@ -864,8 +834,8 @@
       edgeLines = null;
       if (!currentGeometry) return;
 
-      if (viewMode === "solid" || viewMode === "wireframe") {
-        const solid = viewMode === "solid";
+      const solid = isSolidMode(viewMode);
+      if (solid || viewMode === "wireframe") {
         // Suppress small tessellation edges on curved surfaces in solid mode.
         const edges = new THREE.EdgesGeometry(currentGeometry, solid ? 20 : 1);
         const material = new THREE.LineBasicMaterial({ color: 0x756c1d, depthTest: true, transparent: solid, opacity: solid ? 0.55 : 1, depthWrite: !solid });
@@ -879,16 +849,13 @@
     }
 
     function applyMode(mode) {
+      if (mode === viewMode) return;
+      const needsRebuild = !(isSolidMode(viewMode) && isSolidMode(mode));
       viewMode = mode;
-      aoButton.disabled = mode !== "solid";
       for (const button of modeButtons) {
         button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
       }
-      if (mesh) {
-        rebuildModelDisplay();
-      } else if (edgeLines) {
-        rebuildModelDisplay();
-      }
+      if (needsRebuild && currentGeometry) rebuildModelDisplay();
       requestRender();
     }
 
@@ -1194,11 +1161,6 @@
     });
     document.querySelector("#clear-selection").addEventListener("click", () => clearSelection());
     assignmentHistory.addEventListener("toggle", buildAssignmentHistory);
-    aoButton.addEventListener("click", () => {
-      aoEnabled = !aoEnabled;
-      aoButton.setAttribute("aria-pressed", String(aoEnabled));
-      requestRender();
-    });
     for (const button of modeButtons) {
       button.addEventListener("click", () => applyMode(button.dataset.mode));
     }
