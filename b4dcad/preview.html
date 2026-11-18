@@ -919,6 +919,8 @@
       }
     }
 
+    const integerFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+
     function formatDimension(value) {
       return Number(value.toFixed(3)).toLocaleString(undefined, {
         maximumFractionDigits: 3,
@@ -964,9 +966,7 @@
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const { pla_g, petg_g } = await response.json();
-        const grams = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
-        const format = (value) => value > 0 && value < 0.01 ? "<0.01" : grams.format(value);
-        line.textContent = `Print ≈ ${format(pla_g)} g PLA / ${format(petg_g)} g PETG`;
+        line.textContent = `Print ≈ ${integerFormat.format(pla_g)} g PLA / ${integerFormat.format(petg_g)} g PETG`;
       } catch {
         line.textContent = "Print estimate unavailable";
       }
@@ -988,7 +988,7 @@
         dimensions.prepend(name);
       }
       const volume = document.createElement("div");
-      volume.textContent = `Volume ≈ ${formatDimension(estimateVolume(geometry, box.getCenter(new THREE.Vector3())))} mm³`;
+      volume.textContent = `Volume ≈ ${integerFormat.format(estimateVolume(geometry, box.getCenter(new THREE.Vector3())))} mm³`;
       dimensions.append(volume);
       if (estimateUrl) {
         const estimate = document.createElement("div");
